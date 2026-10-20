@@ -18,7 +18,7 @@ from flexsim3d.viewer_export import export
 ap = argparse.ArgumentParser()
 ap.add_argument("npz")
 ap.add_argument("--outdir", default=None)
-ap.add_argument("--viewer-frames", type=int, default=180)
+ap.add_argument("--viewer-frames", type=int, default=120)
 ap.add_argument("--viewer-revs", type=float, default=1.0, help="show the last N cam revolutions in the viewer")
 a = ap.parse_args()
 
@@ -31,6 +31,9 @@ plots.fig_line_load(d, out / "line_load_map.png")
 plots.fig_profiles(d, jaw=0, path=out / "line_load_profiles_jaw1.png")
 plots.fig_buckling(d, module=0, path=out / "leaf_buckling_module1.png")
 plots.fig_slip(d, out / "slip.png")
+if "leaf_sig_wide" in d:
+    plots.fig_stress_components(d, out / "stress_components.png")
+plots.fig_tube(d, out / "tube_force.png")
 
 # viewer: frames from the last N revolutions
 qpsi = d["q_psi"]

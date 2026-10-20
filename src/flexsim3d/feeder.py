@@ -29,7 +29,7 @@ from dataclasses import dataclass, field, asdict
 import numpy as np
 
 from .beam import Section
-from .contact import WireJawContact
+from .contact import WireJawContact, WireTubeContact
 from .model import Model
 
 
@@ -45,7 +45,7 @@ class FeederParams:
     theta_deg: float = 15.0         # angled-leaf inclination
     N_leaves: int = 15              # leaves per stack
     pitch: float = 1.5              # leaf spacing in a stack [assumed]
-    n_el_leaf: int = 4              # beam elements per leaf
+    n_el_leaf: int = 8              # beam elements per leaf (converged; 4 is ~15% stiff post-buckling)
     imperfection: float = 0.05      # leaf initial bow amplitude, mm (seeded random sign); ~FDM print tolerance
     seed: int = 0
     # layout
@@ -63,11 +63,21 @@ class FeederParams:
     wire_below: float = 5.0         # wire length below the jaws (to the spring BC)
     wire_above: float = 3.0         # wire length above the jaws (to the top guide)
     wire_h: float = 0.5             # wire element length
-    k_feed: float = 100.0           # N/mm, spring at the wire's bottom end
+    k_feed: float = 100.0           # N/mm, spring at the wire's bottom end (nozzle / deposition resistance)
+    # wire in the spindle tube (tube_length = 0: no tube, short free wire + guide)
+    tube_length: float = 250.0      # mm of wire inside the orbital flexure tube, ends at the nozzle
+    tube_gap: float = 3.0           # jaw bottom -> tube entry
+    tube_id: float = 1.0            # flexure tube ID (paper: d_i = 1 mm)
+    mu_tube: float = 0.3            # Al wire on steel tube wall
+    k_tube: float = 1.0e4           # N/mm per mm, wall contact stiffness
+    wire_h_tube: float = 1.0        # wire element length inside the tube
+    wire_imp: float = 0.04          # wire initial bow / helix amplitude in the tube (spool cast)
+    tube_ecc: float = 0.0           # tube centreline offset at the nozzle (orbit snapshot; 0 = straight)
+    tube_axial_only: bool = False   # True: no circumferential friction (worse conditioned)
+    stab_tube: float = 1e-4         # always-on lateral viscous regularization of in-tube wire DOFs (x eta*K_ii); validated vs helical buckling theory
     # contact / friction
     k_line: float = 1.0e4           # N/mm per mm contact length (Hertz-based)
     mu: float = 0.2
-    eps_slip: float = 1e-4          # mm, friction regularization
     clearance: float = 0.0          # radial jaw-edge clearance at neutral
     # cam (paper A.4 values)
     delta_c: float = 0.4            # jaw clamp stroke (radial)
@@ -212,30 +222,83 @@ class Feeder:
             self._build_wire()
         m.finalize()
         self._leaf_index()
+        if with_wire and self.tube is not None and p.stab_tube > 0:
+            # lateral DOFs (ux, uy, rot x, rot y) of wire nodes inside the tube get a
+            # tiny viscous term eta*K_ii*(q - q_prev): removes the near-zero-stiffness
+            # helix-rolling mode without adding any axial drag
+            _, K = m.assemble(np.zeros(m.ndof), np.zeros(m.ndof))
+            diag = np.abs(K.diagonal())
+            c = np.zeros(m.ndof)
+            for i in self.tube_wire_idx:
+                for k in (0, 1, 3, 4):
+                    dof = 6 * self.wire_nodes[i] + k
+                    if dof not in m.fixed:
+                        c[dof] = p.stab_tube * diag[dof]
+            m.stab_base = c
 
     def _build_wire(self):
         p, m = self.p, self.m
-        z0 = -p.jaw_length / 2 - p.wire_below
-        z1 = p.jaw_length / 2 + p.wire_above
-        n_el = int(round((z1 - z0) / p.wire_h))
-        zs = np.linspace(z0, z1, n_el + 1)
         wsec = Section.circle(p.E_wire, p.nu_wire, p.d_wire)
         self.wire_section = wsec
-        bot = m.add_entity([0, 0, z0], "node", "wire0")
-        top = m.add_entity([0, 0, z1], "node", f"wire{n_el}")
-        g = m.add_member(bot, [0, 0, z0], top, [0, 0, z1], wsec, (1, 0, 0), n_el, None, "wire")
-        self.wire_group = g
-        self.wire_nodes = list(g.nodes)
+        z_jb = -p.jaw_length / 2
+        z1 = p.jaw_length / 2 + p.wire_above
+        if p.tube_length > 0:
+            z_entry = z_jb - p.tube_gap
+            z0 = z_entry - p.tube_length
+        else:
+            z_entry = z0 = z_jb - p.wire_below
+        bot = m.add_entity([0, 0, z0], "node", "wire_bottom")
+        top = m.add_entity([0, 0, z1], "node", "wire_top")
+        groups = []
+        if p.tube_length > 0:
+            mid = m.add_entity([0, 0, z_entry], "node", "wire_tube_entry")
+            n_t = int(round(p.tube_length / p.wire_h_tube))
+            a, lam, Lt = p.wire_imp, 30.0, p.tube_length
+
+            def imp_shape(s):   # s = 0 at the nozzle; long bow + short helix, zero at both ends
+                env = np.sin(np.pi * s)
+                return a / 1.25 * np.array([env + 0.25 * env * np.cos(2 * np.pi * s * Lt / lam),
+                                            0.5 * np.sin(2 * np.pi * s) + 0.25 * env * np.sin(2 * np.pi * s * Lt / lam),
+                                            0.0])
+            groups.append(m.add_member(bot, [0, 0, z0], mid, [0, 0, z_entry], wsec, (1, 0, 0), n_t,
+                                       (1.0, imp_shape) if a else None, "wire_tube"))
+            start = mid
+        else:
+            start = bot
+        n_u = int(round((z1 - z_entry) / p.wire_h))
+        groups.append(m.add_member(start, [0, 0, z_entry], top, [0, 0, z1], wsec, (1, 0, 0), n_u, None, "wire"))
+        nodes = list(groups[0].nodes)
+        for g in groups[1:]:
+            nodes += list(g.nodes[1:])
+        self.wire_groups = groups
+        self.wire_group = groups[-1]
+        self.wire_elems = np.concatenate([g.elements for g in groups])
+        self.wire_nodes = nodes
+        zs = np.array([m.X[k][2] for k in nodes])
         self.wire_z = zs
         h = np.diff(zs)
         self.wire_ltrib = np.concatenate([[h[0] / 2], 0.5 * (h[:-1] + h[1:]), [h[-1] / 2]])
         self.wire_bot, self.wire_top = bot, top
-        m.fix(bot, [0, 1, 5])           # guide into the spindle: lateral + twist
+        m.fix(bot, [0, 1, 5])           # nozzle bore / guide: lateral + twist
         m.fix(top, [0, 1])              # upper guide: lateral
-        m.add_spring(bot, 2, p.k_feed)  # feed resistance (stiffness BC)
+        m.add_spring(bot, 2, p.k_feed)  # feed resistance at the nozzle (stiffness BC)
+        # jaw contact only for wire nodes that can reach the jaws (wire only moves down)
+        self.jaw_wire_idx = np.nonzero(zs >= z_jb - 1.0)[0]
         self.contact = m.add_term(WireJawContact(
-            m, self.wire_nodes, self.wire_ltrib, [mod["edge"] for mod in self.modules],
-            k_line=p.k_line, mu=p.mu, rw=p.d_wire / 2, eps=p.eps_slip))
+            m, [nodes[i] for i in self.jaw_wire_idx], self.wire_ltrib[self.jaw_wire_idx],
+            [mod["edge"] for mod in self.modules],
+            k_line=p.k_line, mu=p.mu, rw=p.d_wire / 2))
+        self.tube = None
+        self.tube_wire_idx = np.array([], int)
+        if p.tube_length > 0:
+            self.tube_wire_idx = np.nonzero(zs <= z_entry + 8.0)[0]
+            self.z_entry = z_entry
+            self.tube = m.add_term(WireTubeContact(
+                m, [nodes[i] for i in self.tube_wire_idx], self.wire_ltrib[self.tube_wire_idx],
+                z_top=z_entry, length=p.tube_length, inner_radius=p.tube_id / 2, rw=p.d_wire / 2,
+                k=p.k_tube, mu=p.mu_tube,
+                ecc=p.tube_ecc, shape=(1.5, -0.5),   # clamped-pinned static deflection shape
+                axial_only=p.tube_axial_only))
 
     def _leaf_index(self):
         """Arrays for fast per-leaf post-processing."""

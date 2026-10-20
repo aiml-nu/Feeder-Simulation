@@ -20,7 +20,7 @@ from flexsim3d.sim import run_cycle, Recorder
 ap = argparse.ArgumentParser()
 ap.add_argument("--revs", type=float, default=3.0, help="cam revolutions (1 rev = 2 feed cycles)")
 ap.add_argument("--dpsi", type=float, default=1.0, help="cam step [deg]")
-ap.add_argument("--frame-every", type=int, default=2, help="store full state every N steps")
+ap.add_argument("--frame-every", type=int, default=3, help="store full state every N steps")
 ap.add_argument("--eig-every", type=int, default=0, help="lowest tangent eigenvalue every N steps (slow)")
 ap.add_argument("--set", nargs="*", default=[], help="FeederParams overrides name=value")
 ap.add_argument("--out", default=str(ROOT / "examples/feeder_v2_3d/results/base.npz"))
@@ -42,5 +42,7 @@ arr = rec.arrays()
 np.savez_compressed(out, params=json.dumps(p.to_dict()), wire_z=F.wire_z,
                     leaf_Pcr=F.leaf_Pcr, leaf_kind=F.leaf_kind, leaf_module=F.leaf_module,
                     leaf_level=F.leaf_level, leaf_arm=F.leaf_arm, leaf_i=F.leaf_i,
+                    wire_elem_z=np.array([0.5 * (F.m.Xarr[F.m.ea[e]][2] + F.m.Xarr[F.m.eb[e]][2]) for e in F.wire_elems]),
+                    jaw_wire_idx=F.jaw_wire_idx, tube_wire_idx=F.tube_wire_idx,
                     phases=np.array([mod["phase"] for mod in F.modules]), **arr)
 print(f"saved {out}  ({time.time() - t0:.0f} s)")

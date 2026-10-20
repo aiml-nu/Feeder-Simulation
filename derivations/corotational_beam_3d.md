@@ -50,24 +50,62 @@ k_line comes from Hertz line contact (Johnson):
 δ = 2q/(πE*) (2 ln(4R/b) − 1), b = √(4qR/(πE*)). For Al on steel at q ≈ 5–20 N/mm
 this gives q/δ ≈ 0.9–1.05e4 N/mm².
 
-Friction: the slip increment of the wire-surface material point relative to the
-jaw material point since the last converged step, Δs_t (tangential part), gives
+Friction is Coulomb with elastic stick and memory (a return mapping). Each pair
+stores its tangential force f_prev from the last converged step. The trial force
+is
 
-    f_t = −μ N Δs_t / √(|Δs_t|² + ε²)
+    f_tr = P_t(f_prev) − k_t l Δs_t        (Δs_t = tangential slip increment since that step)
 
-This is stick for |Δs_t| ≪ ε and full slip at μN otherwise. It is
-non-conservative, so its Jacobian (jacfwd) makes the tangent mildly
-unsymmetric. The solver uses SuperLU in symmetric mode with a fallback.
+and it is limited to |f| ≤ μN with a smooth max:
+
+    f = f_tr · μN / smax(|f_tr|, μN),   smax(a, b) = ½(a + b + √((a − b)² + δ²))
+
+so sticking contacts hold a sustained load without creep and N = 0 clears the
+history. `Model.commit()` stores f after every converged increment. (The first
+version used a memoryless regularization f = −μN Δs/√(|Δs|² + ε²). That lets
+a stuck contact creep by about ε per step and under-mobilizes friction where
+sliding is slow.)
+
+## Wire in the tube
+
+Each wire node below the tube entry is tested against a rigid cylinder of inner
+radius R_i. The penetration is g = |c_xy − centre(z)| + r_w − R_i, with the same
+C1 penalty law, a smoothstep at the entry, and the same Coulomb law with memory
+(circumferential and axial). The centreline can be offset as
+e(a₂s² + a₃s³), with s the normalized depth: e.g. the clamped-pinned static
+shape of the orbital flexure. The default is straight.
+
+Helical post-buckling is a sequence of snaps, so the in-tube wire's lateral DOFs
+(u_x, u_y, θ_x, θ_y) carry an always-on viscous term η K_ii (q − q_prev) with
+η = 1e-4. Axial DOFs are excluded, so it adds no axial drag. Validation
+(`examples/feeder_v2_3d/tube_validation.py`, steps of about 0.5 N as in the
+feeder) against the weightless-rod helical buckling solution (Lubinski 1962;
+Mitchell 1986):
+
+    w = r F² / (4 EI),   dF/ds = −μ w   ⇒   F_bottom = F_top / (1 + μ r L F_top / (4 EI))
+
+gives a loss of 3.4% vs 4.0% at 100 N, 5.8% vs 5.9% at 150 N and 8.1% vs 7.7% at
+200 N. η = 1e-3 delays helix formation to about 120 N, so keep η ≤ 1e-4.
+
+## Mesh
+
+8 elements per leaf is converged: 8, 10, 12 and 16 agree within 1% for clamp
+force and peak stress through post-buckling
+(`examples/feeder_v2_3d/element_convergence.py`). 4 elements matches before
+buckling but is about 15% too stiff after it and under-predicts peak bending
+stress by about a third.
 
 ## Solver
 
 Load-stepped Newton–Raphson with prescribed DOFs eliminated. Convergence:
 ‖r_free‖∞ ≤ 1e-8 (1 + max|r|). Line search: regula falsi on s(α) = Δq·r(q + αΔq),
 the directional derivative of the potential. This is unit-consistent, unlike
-‖r‖, which stalls near buckling. Steps that fail are halved recursively. A
-local snap (lowest eigenvalue < 0) is passed with viscous stabilization
-c_i = 1e-3 K_ii on leaf-node DOFs over 8 sub-steps, with the dissipated energy
-logged.
+‖r‖, which stalls near buckling. If a step fails, it is halved once; a
+sub-step that still fails is retried with viscous stabilization
+c_i = 1e-4 K_ii on beam-node DOFs (wire axial DOFs excluded) before halving
+further. This handles local snaps, i.e. a leaf flipping between buckled shapes
+or the wire re-arranging its helix. The dissipated energy is logged per step
+(`stab_energy`, `stab_log`).
 
 ## Buckling reporting
 

@@ -93,7 +93,7 @@ def line_load_grid(d, jaw, ngrid=181):
     """Line load q [N/mm] on a fixed grid along the jaw (0 = bottom, L = top)."""
     m, psi = _cam(d)
     L = d["params"]["jaw_length"]
-    hw = d["params"]["wire_h"]
+    hw = d["params"]["wire_h"]          # jaw region mesh size
     s = d["s_on_jaw"][m][:, jaw, :]
     q = d["N"][m][:, jaw, :] / hw
     grid = np.linspace(0, L, ngrid)
@@ -171,14 +171,13 @@ def fig_buckling(d, module=0, path=None):
 
 
 def fig_slip(d, path=None):
-    """Fraction of each pair's contact length that is slipping (|slip| > 3 eps)."""
+    """Share of each pair's in-contact length sliding at the Coulomb limit."""
     m, psi = _cam(d)
-    eps = d["params"]["eps_slip"]
     N, sl = d["N"][m], d["slip"][m]
     fig, ax = plt.subplots(figsize=(10, 3.2))
     for pr in range(3):
         on = N[:, [pr, pr + 3]] > 1e-3
-        slipping = on & (sl[:, [pr, pr + 3]] > 3 * eps)
+        slipping = on & sl[:, [pr, pr + 3]].astype(bool)
         frac = slipping.sum(axis=(1, 2)) / np.maximum(on.sum(axis=(1, 2)), 1)
         ax.plot(psi, frac * 100, color=PAIR_COLORS[pr], label=f"Pair {pr + 1}")
     ax.set_ylabel("Contact slipping [%]")
@@ -186,6 +185,64 @@ def fig_slip(d, path=None):
     ax.set_ylim(-3, 103)
     ax.set_title("Jaw slip (share of in-contact length sliding on the wire)")
     ax.legend(ncol=3, loc="lower right", bbox_to_anchor=(1.0, 1.0), borderaxespad=0.2)
+    if path:
+        fig.savefig(path)
+    return fig
+
+
+def fig_stress_components(d, path=None, settle=360.0):
+    """Peak stress by component for each stack type (all modules, steady state):
+    is the stiff-axis ('wide') bending from the V over-constraint significant?"""
+    m, psi = _cam(d)
+    sel = psi >= psi.max() - settle
+    comps = [("leaf_sig_axial", "Axial"), ("leaf_sig_thin", "Bending, thin"),
+             ("leaf_sig_wide", "Bending, wide"), ("leaf_tau", "Torsion (shear)")]
+    groups = [("angled", 1, "Angled\ntop"), ("angled", -1, "Angled\nbottom"),
+              ("straight", 1, "Straight\ntop"), ("straight", -1, "Straight\nbottom")]
+    cols = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100"]
+    fig, ax = plt.subplots(figsize=(9, 4.4))
+    wbar = 0.19
+    for ci, ((key, lab), c) in enumerate(zip(comps, cols)):
+        vals = []
+        for kind, lev, _ in groups:
+            msk = (d["leaf_kind"] == kind) & (d["leaf_level"] == lev)
+            vals.append(d[key][m][sel][:, msk].max())
+        x = np.arange(len(groups)) + (ci - 1.5) * wbar
+        ax.bar(x, vals, width=wbar * 0.92, color=c, label=lab)
+        for xi, v in zip(x, vals):
+            ax.text(xi, v, f"{v:.1f}", ha="center", va="bottom", fontsize=8.5, color=INK2)
+    ax.set_xticks(np.arange(len(groups)), [g[2] for g in groups])
+    ax.grid(axis="x", visible=False)
+    ax.set_ylabel("Peak stress over a revolution [MPa]")
+    ax.set_title("Leaf stress by component (worst leaf of each stack type, all modules)")
+    ax.legend(ncol=4, loc="upper center", bbox_to_anchor=(0.5, -0.2), fontsize=9.5)
+    if path:
+        fig.savefig(path)
+    return fig
+
+
+def fig_tube(d, path=None, settle=360.0):
+    """Force transmission through the tube: jaw push vs nozzle force, and the
+    axial compression profile along the wire at the steady-state peak."""
+    if "tube_ftz" not in d:
+        return None
+    m, psi = _cam(d)
+    push, feed = d["jaw_push"][m], d["feed_force"][m]
+    fig, axs = plt.subplots(1, 2, figsize=(11.5, 4.2), gridspec_kw=dict(width_ratios=[1.25, 1]))
+    ax = axs[0]
+    ax.plot(psi, push, color=INK2, lw=1.5, ls="--", label="Jaw push on wire")
+    ax.plot(psi, feed, color=INK, label="Force at nozzle")
+    ax.set(xlabel="Cam angle [deg]", ylabel="Force [N]", title="Push vs. force delivered")
+    ax.legend(loc="lower right")
+    ax = axs[1]
+    sel = np.nonzero(psi >= psi.max() - settle)[0]
+    i = sel[np.argmax(feed[sel])]
+    wn = -d["wire_N"][m][i]
+    z = d["wire_elem_z"]
+    ax.plot(-z, np.maximum(wn, 0), color="#2a78d6")
+    ax.axvspan(-d["params"]["jaw_length"] / 2, d["params"]["jaw_length"] / 2, color="#2a78d6", alpha=0.07, lw=0)
+    ax.set(xlabel="Depth below jaw centre [mm]", ylabel="Axial compression [N]",
+           title=f"Along the wire at {psi[i]:.0f}°")
     if path:
         fig.savefig(path)
     return fig

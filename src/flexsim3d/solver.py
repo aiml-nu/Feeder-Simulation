@@ -165,3 +165,20 @@ def lowest_eigs(model, q, prescribed=None, k=3, q_prev=None):
     vals, vecs = spla.eigsh(Ks, k=kk, sigma=-1e-6 * abs(Ks.diagonal()).max(), which="LM")
     order = np.argsort(vals)[:k]
     return vals[order], vecs[:, order], free
+
+
+def solve_stabilized(model, q, prescribed, q_prev, eta=1e-4, mask=None, maxit=40):
+    """Newton solve with viscous stabilization r += c (q - q_prev), c_i = eta*|K_ii|
+    (Abaqus *STABILIZE-style). Lets a quasi-static solve pass a snap (a local
+    loss of stability) by spreading the jump over several increments.
+    Returns (result, dissipated energy estimate sum c_i dq_i^2)."""
+    _, K = model.assemble(q, q_prev)
+    c = eta * np.abs(K.diagonal())
+    if mask is not None:
+        c = c * mask
+    model.stab = c
+    try:
+        res = solve_step(model, q, prescribed, q_prev=q_prev, maxit=maxit)
+    finally:
+        model.stab = None
+    return res, float(c @ (res.q - q_prev) ** 2)

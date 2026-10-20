@@ -129,7 +129,11 @@ class Model:
         pts = Pa[None, :] + s[:, None] * (Pb - Pa)[None, :]
         if imperfection is not None:
             amp, shape = imperfection
-            pts = pts + amp * np.array([shape(si) for si in s])[:, None] * F[:, 1][None, :]
+            vals = np.array([shape(si) for si in s], float)
+            if vals.ndim == 2:      # shape returns a global 3-vector offset per point
+                pts = pts + amp * vals
+            else:                   # scalar shape along the member's e2 axis
+                pts = pts + amp * vals[:, None] * F[:, 1][None, :]
         owners = [a]
         offs = [self.attach_point(a, pts[0])]
         for i in range(1, n_el):
@@ -227,6 +231,9 @@ class Model:
             if with_K:
                 vals.append(np.asarray(Jt).ravel())
         stab = getattr(self, "stab", None)
+        base = getattr(self, "stab_base", None)
+        if base is not None:
+            stab = base if stab is None else stab + base
         if stab is not None:     # viscous stabilization (only active when the driver sets it)
             r += stab * (q - q_prev)
         if not with_K:
@@ -240,6 +247,13 @@ class Model:
         if stab is not None:
             K = K + sp.diags(stab, format="csr")
         return r, K
+
+    def commit(self, q, q_prev):
+        """Call after every converged increment that becomes the next start
+        state: history-dependent terms (friction) store their state."""
+        for t in self.terms:
+            if hasattr(t, "commit"):
+                t.commit(q, q_prev)
 
     # ------------------------------------------------------------ post-proc
     def element_forces(self, q):
