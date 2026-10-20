@@ -1,0 +1,3 @@
+# Overview of Simulation Tool
+
+This tool will be used to simulate the performance of a flexure-based wire feeder designed to feed roughly 1 mm diameter wire at high force, without damaging the wire surface. It will achieve this through multiple planar beam flexures that will eventually be 3D printed, so it is critical to simulate a design before production to ensure the various force parameters will be met. 
