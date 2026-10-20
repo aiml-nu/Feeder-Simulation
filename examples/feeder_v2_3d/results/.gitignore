@@ -1,0 +1,3 @@
+*.npz
+viewer_data.json
+*viewer*.html

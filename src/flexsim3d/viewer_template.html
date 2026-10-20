@@ -1,0 +1,482 @@
+<title>Dauber Feeder Viewer</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: instrument-style workbench - 3D stage left, synchronized readouts + charts right, transport bar under the stage */
+:root {
+  --bg: #f3f5f6; --panel: #ffffff; --scene: #e9edf0; --ink: #12161a; --ink2: #49525a; --muted: #848d95;
+  --line: #d9dfe3; --accent: #2a78d6; --accent-ink: #ffffff;
+  --pair1: #2a78d6; --pair2: #eb6834; --pair3: #1baf7a;
+  --leaf: #a3aab0; --util-mid: #eb6834; --util-hot: #a3260f; --rigid: #5d666e; --ground: #c5ccd2; --wire: #8d949a;
+  --f-ui: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-num: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1215; --panel: #171b1f; --scene: #0b0d10; --ink: #edf0f2; --ink2: #b3bbc2; --muted: #7c858d;
+  --line: #2a3036; --accent: #3987e5; --accent-ink: #ffffff;
+  --pair1: #3987e5; --pair2: #d95926; --pair3: #199e70;
+  --leaf: #6b737a; --util-mid: #d95926; --util-hot: #ff7a5c; --rigid: #8d969e; --ground: #3a4248; --wire: #9aa1a7;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0f1215; --panel: #171b1f; --scene: #0b0d10; --ink: #edf0f2; --ink2: #b3bbc2; --muted: #7c858d;
+  --line: #2a3036; --accent: #3987e5; --accent-ink: #ffffff;
+  --pair1: #3987e5; --pair2: #d95926; --pair3: #199e70;
+  --leaf: #6b737a; --util-mid: #d95926; --util-hot: #ff7a5c; --rigid: #8d969e; --ground: #3a4248; --wire: #9aa1a7;
+  color-scheme: dark; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-ui); font-size: 14px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 14px 20px; box-sizing: border-box; }
+* { box-sizing: border-box; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; margin-bottom: 12px; }
+h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; margin: 0; text-wrap: balance; }
+.sub { color: var(--ink2); font-size: 13px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.chip { font-family: var(--f-num); font-size: 11.5px; color: var(--ink2); border: 1px solid var(--line); border-radius: 4px; padding: 2px 7px; background: var(--panel); white-space: nowrap; }
+.stage { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 14px; align-items: start; }
+@media (max-width: 960px) { .stage { grid-template-columns: minmax(0, 1fr); } }
+.view { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+#scene-wrap { position: relative; background: var(--scene); border: 1px solid var(--line); border-radius: 6px; height: min(68vh, 680px); min-height: 340px; overflow: hidden; }
+#scene { width: 100%; height: 100%; display: block; touch-action: none; }
+.overlay { position: absolute; left: 10px; top: 10px; display: grid; gap: 2px; pointer-events: none; }
+.big { font-family: var(--f-num); font-size: 26px; font-weight: 500; letter-spacing: -0.02em; }
+.label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+.legend3d { position: absolute; right: 10px; bottom: 10px; background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); border-radius: 5px; padding: 7px 9px; display: grid; gap: 5px; font-size: 11.5px; color: var(--ink2); }
+.ramp { width: 150px; height: 8px; border-radius: 2px; }
+.ramp-axis { display: flex; justify-content: space-between; font-family: var(--f-num); font-size: 10px; color: var(--muted); }
+.transport { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+button { font-family: var(--f-ui); font-size: 13px; font-weight: 600; border-radius: 5px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 6px 12px; cursor: pointer; }
+button.vbtn { padding: 4px 9px; font-size: 12px; font-weight: 500; }
+button.vbtn.on { border-color: var(--accent); color: var(--accent); }
+@media (max-width: 520px) { .legend3d { transform: scale(0.85); transform-origin: right bottom; } }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); min-width: 74px; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.grow { flex: 1 1 220px; display: flex; align-items: center; gap: 8px; min-width: 0; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.ctl { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink2); }
+select { font-family: var(--f-ui); font-size: 12.5px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 4px; }
+.num { font-family: var(--f-num); font-variant-numeric: tabular-nums; }
+.mods { display: flex; gap: 4px; flex-wrap: wrap; }
+.mods label { font-family: var(--f-num); font-size: 11.5px; border: 1px solid var(--line); border-radius: 4px; padding: 2px 6px; display: flex; gap: 4px; align-items: center; cursor: pointer; color: var(--ink2); }
+aside { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; min-width: 0; }
+.card h2 { font-size: 13px; font-weight: 700; margin: 0 0 2px; }
+.card p.note { margin: 0 0 8px; color: var(--ink2); font-size: 12px; }
+.kv { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+.kv .v { font-family: var(--f-num); font-size: 17px; font-variant-numeric: tabular-nums; }
+.phases { display: grid; gap: 5px; margin-top: 10px; }
+.ph { display: grid; grid-template-columns: 14px 54px 1fr auto; align-items: center; gap: 6px; font-size: 12.5px; }
+.sw { width: 12px; height: 3px; border-radius: 2px; }
+.pill { font-size: 11px; font-weight: 600; border-radius: 10px; padding: 1px 8px; border: 1px solid var(--line); color: var(--ink2); justify-self: start; }
+.pill.on { color: var(--ink); border-color: var(--ink2); }
+canvas.chart { width: 100%; display: block; }
+.leg { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--ink2); margin-top: 6px; }
+.leg span { display: inline-flex; align-items: center; gap: 5px; }
+.leg i { display: inline-block; width: 16px; height: 0; border-top: 2px solid; }
+.leg i.dash { border-top-style: dashed; }
+footer { margin-top: 14px; color: var(--muted); font-size: 12px; max-width: 900px; }
+#err { display: none; color: var(--util-hot); padding: 16px; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+
+<header>
+  <h1>Dauber feeder V2: 3D flexure and contact simulation</h1>
+  <span class="sub" id="sub"></span>
+  <div class="chips" id="chips"></div>
+</header>
+
+<div class="stage">
+  <div class="view">
+    <div id="scene-wrap">
+      <canvas id="scene" aria-label="3D view of the feeder mechanism. Drag to orbit, scroll to zoom."></canvas>
+      <div class="overlay">
+        <span class="label">Cam angle</span>
+        <span class="big num" id="o-psi">0.0°</span>
+      </div>
+      <div class="legend3d" aria-hidden="true">
+        <div>Leaf compression / buckling load</div>
+        <div class="ramp" id="ramp-util"></div>
+        <div class="ramp-axis"><span>0</span><span>0.5</span><span>1.0</span><span>1.5</span></div>
+        <div style="margin-top:4px">Contact line load on wire</div>
+        <div class="ramp" id="ramp-load"></div>
+        <div class="ramp-axis"><span>0</span><span id="lmax"></span></div>
+      </div>
+      <div id="err"></div>
+    </div>
+    <div class="transport">
+      <button class="primary" id="play" type="button">Play</button>
+      <div class="grow"><input type="range" id="frame" min="0" max="1" value="0" step="1" aria-label="Frame"></div>
+      <label class="ctl" for="speed">Speed
+        <select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></label>
+      <label class="ctl" for="mag">Deformation <span class="num" id="magv">×5</span>
+        <input type="range" id="mag" min="1" max="30" value="5" step="1" style="width:110px"></label>
+      <div class="ctl" role="group" aria-label="View">View
+        <button type="button" class="vbtn" data-view="cut">Cutaway</button>
+        <button type="button" class="vbtn" data-view="all">Full</button>
+        <button type="button" class="vbtn" data-view="wire">Wire + jaws</button></div>
+      <div class="mods" id="mods" aria-label="Show modules"></div>
+    </div>
+  </div>
+
+  <aside>
+    <div class="card">
+      <div class="kv">
+        <div><div class="label">Feed force (spring)</div><div class="v" id="k-feed">0 N</div></div>
+        <div><div class="label">Wire travel</div><div class="v" id="k-wz">0 mm</div></div>
+        <div><div class="label">Total clamp</div><div class="v" id="k-clamp">0 N</div></div>
+        <div><div class="label">Worst leaf P/P<sub>cr</sub></div><div class="v" id="k-util">0</div></div>
+      </div>
+      <div class="phases" id="phases"></div>
+    </div>
+    <div class="card">
+      <h2>Contact line load along each jaw</h2>
+      <p class="note">Bottom of the jaw at the bottom of the chart. Solid: jaws 1–3, dashed: the opposite jaw of each pair.</p>
+      <canvas class="chart" id="c-load" height="300"></canvas>
+      <div class="leg" id="leg-load"></div>
+    </div>
+    <div class="card">
+      <h2>Feed force over the run</h2>
+      <p class="note">The wire loads a spring at its bottom end until the jaws slip. Click to jump.</p>
+      <canvas class="chart" id="c-feed" height="150"></canvas>
+    </div>
+  </aside>
+</div>
+
+<footer id="foot"></footer>
+
+<script type="application/json" id="simdata">/*__DATA__*/</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+"use strict";
+const $ = (id) => document.getElementById(id);
+if (typeof THREE === "undefined") { $("err").style.display = "block"; $("err").textContent = "3D library failed to load."; return; }
+const D = JSON.parse($("simdata").textContent);
+const P = D.params;
+function dec(s, T) { const b = atob(s), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return new T(u.buffer); }
+const leafRef = dec(D.leaf_ref, Float32Array), leafW = dec(D.leaf_wdir, Float32Array);
+const leafDisp = dec(D.leaf_disp, Int16Array), wireRef = dec(D.wire_ref, Float32Array), wireDisp = dec(D.wire_disp, Int16Array);
+const bodyRef = dec(D.body_ref, Float32Array), bodyPose = dec(D.body_pose, Float32Array);
+const loads = dec(D.loads, Uint16Array), leafUtil = dec(D.leaf_util, Uint8Array);
+const nF = D.n_frames, nL = D.nL, nP = D.nP, nS = nL * (nP - 1), nW = wireRef.length / 3, nJ = D.n_jaws, nB = bodyRef.length / 3;
+const S = D.disp_scale;
+
+// ---------- tokens
+const css = () => getComputedStyle(document.documentElement);
+let T = {};
+function readTokens() {
+  const c = css(); const g = (n) => c.getPropertyValue(n).trim();
+  T = { bg: g("--scene"), ink: g("--ink"), ink2: g("--ink2"), muted: g("--muted"), line: g("--line"),
+        pair: [g("--pair1"), g("--pair2"), g("--pair3")], leaf: g("--leaf"), mid: g("--util-mid"), hot: g("--util-hot"),
+        rigid: g("--rigid"), ground: g("--ground"), wire: g("--wire"), panel: g("--panel") };
+}
+readTokens();
+const seq = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"];
+function lerpHex(a, b, t) { const A = new THREE.Color(a), B = new THREE.Color(b); return A.lerp(B, t); }
+function rampColor(stops, t) { t = Math.min(1, Math.max(0, t)); const x = t * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(x)); return lerpHex(stops[i], stops[i + 1], x - i); }
+function utilColor(u) { return u < 1 ? rampColor([T.leaf, T.mid], Math.pow(u, 1.5)) : rampColor([T.mid, T.hot], (u - 1) / 0.5); }
+function paintRamps() {
+  const g1 = [0, 0.25, 0.5, 0.67, 0.8, 0.9, 1].map(t => utilColor(t * 1.5).getStyle());
+  $("ramp-util").style.background = `linear-gradient(90deg, ${g1.join(",")})`;
+  $("ramp-load").style.background = `linear-gradient(90deg, ${seq.join(",")})`;
+}
+paintRamps();
+$("lmax").textContent = D.load_max.toFixed(1) + " N/mm";
+
+// ---------- header text
+const nModules = P.n_modules;
+$("sub").textContent = `${nL} leaves, ${nJ} jaws, flexible ${P.d_wire} mm wire; quasi-static, geometrically nonlinear`;
+const chips = [["E", P.E_flex + " MPa"], ["μ", P.mu], ["k feed", P.k_feed + " N/mm"], ["k contact", (P.k_line / 1000) + "e3 N/mm²"], ["θ", P.theta_deg + "°"], ["V", P.V_angle_deg + "°"]];
+$("chips").innerHTML = chips.map(([a, b]) => `<span class="chip">${a} ${b}</span>`).join("");
+$("foot").textContent = `Deformations are magnified for display (wire, jaws and leaves alike). Colours: leaf compression relative to its fixed-fixed Euler load (${"P_cr"}); contact markers and wire show line load. Peak leaf ratio over the whole run: ${D.util_peak.toFixed(2)}.`;
+
+// ---------- three.js scene (sim z-up -> three y-up)
+const canvas = $("scene");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(35, 1, 0.5, 2000);
+camera.position.set(110, 95, 150);
+const controls = new THREE.OrbitControls(camera, canvas);
+controls.target.set(0, 0, 0); controls.enableDamping = true;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.75));
+const sun = new THREE.DirectionalLight(0xffffff, 0.65); sun.position.set(60, 120, 80); scene.add(sun);
+const V = (x, y, z) => new THREE.Vector3(x, z, -y);   // sim -> three
+
+function instanced(geo, n, opts) {
+  const mat = new THREE.MeshStandardMaterial(Object.assign({ roughness: 0.6, metalness: 0.05 }, opts || {}));
+  const m = new THREE.InstancedMesh(geo, mat, n);
+  m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3);
+  scene.add(m); return m;
+}
+const box = new THREE.BoxGeometry(1, 1, 1);
+const leaves = instanced(box, nS);
+const wireSegs = instanced(new THREE.CylinderGeometry(1, 1, 1, 14, 1), nW - 1, { metalness: 0.35, roughness: 0.4 });
+const contactM = instanced(box, nJ * nW, { roughness: 0.5 });
+const jawsM = instanced(box, nJ, { metalness: 0.5, roughness: 0.35 });
+const inputsM = instanced(box, 2 * nJ);
+const groundM = instanced(box, nJ * 4, { transparent: true, opacity: 0.55 });
+
+// basis-matrix writer: columns a*la, b*lb, c*lc, translation t (three coords)
+function setBasis(mesh, i, t, a, b, c, la, lb, lc) {
+  const e = mesh.instanceMatrix.array, o = i * 16;
+  e[o] = a.x * la; e[o + 1] = a.y * la; e[o + 2] = a.z * la; e[o + 3] = 0;
+  e[o + 4] = b.x * lb; e[o + 5] = b.y * lb; e[o + 6] = b.z * lb; e[o + 7] = 0;
+  e[o + 8] = c.x * lc; e[o + 9] = c.y * lc; e[o + 10] = c.z * lc; e[o + 11] = 0;
+  e[o + 12] = t.x; e[o + 13] = t.y; e[o + 14] = t.z; e[o + 15] = 1;
+}
+function setCol(mesh, i, col) { mesh.instanceColor.setXYZ(i, col.r, col.g, col.b); }
+
+// module geometry from params
+const th = P.theta_deg * Math.PI / 180, phh = P.V_angle_deg * Math.PI / 360;
+const sOut = P.s0 + P.L2 * Math.cos(th), sG0 = sOut + P.d_input, sG1 = sG0 + P.L1;
+const span = (P.N_leaves - 1) * P.pitch + P.t, zcTop = P.jaw_length / 4 + P.level_gap / 2;
+const alphas = D.jaw_alpha;
+const visible = new Array(nJ).fill(true);
+let showFlex = true;
+
+// static ground blocks
+(function () {
+  let i = 0;
+  for (let k = 0; k < nJ; k++) {
+    const al = alphas[k], er = [Math.cos(al), Math.sin(al)], et = [-Math.sin(al), Math.cos(al)];
+    for (const lev of [1, -1]) for (const sg of [1, -1]) {
+      const d = [Math.cos(phh * sg) * er[0] + Math.sin(phh * sg) * et[0], Math.cos(phh * sg) * er[1] + Math.sin(phh * sg) * et[1]];
+      const apex = [P.r_apex * er[0], P.r_apex * er[1]], s = sG1 + 1.5;
+      const z = lev * zcTop + lev * P.L2 * Math.sin(th);
+      const t = V(apex[0] + s * d[0], apex[1] + s * d[1], z);
+      const a = V(d[0], d[1], 0).normalize(), c = V(0, 0, 1), b = new THREE.Vector3().crossVectors(c, a);
+      setBasis(groundM, i, t, a, b, c, 3, P.w + 1.2, span + 1); setCol(groundM, i, new THREE.Color(T.ground)); i++;
+    }
+  }
+  groundM.instanceMatrix.needsUpdate = true; groundM.instanceColor.needsUpdate = true;
+})();
+
+const _R = new THREE.Matrix4(), _q = new THREE.Quaternion();
+function rotFromVec(px, py, pz, mag) {   // sim rotation vector -> three quaternion
+  const v = V(px * mag, py * mag, pz * mag), ang = v.length();
+  if (ang < 1e-12) return _q.set(0, 0, 0, 1);
+  return _q.setFromAxisAngle(v.multiplyScalar(1 / ang), ang);
+}
+
+let frame = 0, mag = 5;
+const tmp = { a: new THREE.Vector3(), b: new THREE.Vector3(), c: new THREE.Vector3(), t: new THREE.Vector3(), w: new THREE.Vector3() };
+const p0 = new THREE.Vector3(), p1 = new THREE.Vector3();
+function leafPoint(f, l, j, out) {
+  const r = (l * nP + j) * 3, dI = ((f * nL + l) * nP + j) * 3;
+  out.set(leafRef[r] + mag * S * leafDisp[dI], leafRef[r + 1] + mag * S * leafDisp[dI + 1], leafRef[r + 2] + mag * S * leafDisp[dI + 2]);
+  return out.set(out.x, out.z, -out.y);
+}
+const leafModule = D.leaf_module;
+
+function update() {
+  const f = frame;
+  // leaves
+  for (let l = 0; l < nL; l++) {
+    const show = visible[leafModule[l]] && showFlex;
+    const u = leafUtil[f * nL + l] / 255 * 1.5, col = utilColor(u);
+    const w = V(leafW[l * 3], leafW[l * 3 + 1], leafW[l * 3 + 2]);
+    for (let j = 0; j < nP - 1; j++) {
+      const i = l * (nP - 1) + j;
+      leafPoint(f, l, j, p0); leafPoint(f, l, j + 1, p1);
+      const a = tmp.a.subVectors(p1, p0); const len = a.length(); a.multiplyScalar(1 / len);
+      const c = tmp.c.copy(w).addScaledVector(a, -w.dot(a)).normalize();
+      const b = tmp.b.crossVectors(c, a);
+      const t = tmp.t.addVectors(p0, p1).multiplyScalar(0.5);
+      if (show) setBasis(leaves, i, t, a, b, c, len, P.t, P.w); else setBasis(leaves, i, t, a, b, c, 0, 0, 0);
+      setCol(leaves, i, col);
+    }
+  }
+  leaves.instanceMatrix.needsUpdate = true; leaves.instanceColor.needsUpdate = true;
+  // rigid bodies: jaws (0..nJ-1) then inputs (top, bottom per module)
+  for (let bI = 0; bI < nB; bI++) {
+    const k = bI < nJ ? bI : Math.floor((bI - nJ) / 2), al = alphas[k];
+    const o = (f * nB + bI) * 6, X = V(bodyRef[bI * 3], bodyRef[bI * 3 + 1], bodyRef[bI * 3 + 2]);
+    const u = V(bodyPose[o] * mag, bodyPose[o + 1] * mag, bodyPose[o + 2] * mag);
+    const q = rotFromVec(bodyPose[o + 3], bodyPose[o + 4], bodyPose[o + 5], mag);
+    const er = V(Math.cos(al), Math.sin(al), 0).applyQuaternion(q), et = V(-Math.sin(al), Math.cos(al), 0).applyQuaternion(q), ez = V(0, 0, 1).applyQuaternion(q);
+    const show = visible[k];
+    if (bI < nJ) {   // jaw blade from wire edge to apex
+      const rc = 0.5 * (D.jaw_edge_r + P.r_apex) - P.r_apex;
+      const t = X.clone().add(u).addScaledVector(er, rc);
+      if (show) setBasis(jawsM, bI, t, er, et, ez, P.r_apex - D.jaw_edge_r, 0.4, P.jaw_length);
+      else setBasis(jawsM, bI, t, er, et, ez, 0, 0, 0);
+      setCol(jawsM, bI, new THREE.Color(T.rigid));
+    } else {
+      const ii = bI - nJ, chord = 2 * (0.5 * (sOut + sG0)) * Math.sin(phh) + P.w;
+      const t = X.clone().add(u);
+      if (show && showFlex) setBasis(inputsM, ii, t, er, et, ez, P.d_input, chord, span);
+      else setBasis(inputsM, ii, t, er, et, ez, 0, 0, 0);
+      setCol(inputsM, ii, new THREE.Color(T.rigid));
+    }
+  }
+  jawsM.instanceMatrix.needsUpdate = jawsM.instanceColor.needsUpdate = true;
+  inputsM.instanceMatrix.needsUpdate = inputsM.instanceColor.needsUpdate = true;
+  // wire
+  const wp = [];
+  for (let n = 0; n < nW; n++) {
+    const o = (f * nW + n) * 3;
+    wp.push(V(wireRef[n * 3] + mag * S * wireDisp[o], wireRef[n * 3 + 1] + mag * S * wireDisp[o + 1], wireRef[n * 3 + 2] + mag * S * wireDisp[o + 2]));
+  }
+  const rw = P.d_wire / 2;
+  for (let n = 0; n < nW - 1; n++) {
+    const a = tmp.a.subVectors(wp[n + 1], wp[n]); const len = a.length(); a.multiplyScalar(1 / len);
+    const ref = Math.abs(a.x) < 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 0, 1);
+    const c = tmp.c.crossVectors(a, ref).normalize(), b = tmp.b.crossVectors(a, c);
+    const t = tmp.t.addVectors(wp[n], wp[n + 1]).multiplyScalar(0.5);
+    // cylinder axis is local y
+    setBasis(wireSegs, n, t, b, a, c, rw, len, rw);
+    const stripe = Math.floor((wireRef[n * 3 + 2] + 100) / 2.5) % 2 === 0;
+    setCol(wireSegs, n, new THREE.Color(T.wire).multiplyScalar(stripe ? 1.0 : 0.72));
+  }
+  wireSegs.instanceMatrix.needsUpdate = wireSegs.instanceColor.needsUpdate = true;
+  // contact markers on the wire surface facing each jaw
+  for (let j = 0; j < nJ; j++) {
+    const al = alphas[j], er = V(Math.cos(al), Math.sin(al), 0), et = V(-Math.sin(al), Math.cos(al), 0), ez = V(0, 0, 1);
+    for (let n = 0; n < nW; n++) {
+      const i = j * nW + n, q = loads[(f * nJ + j) * nW + n] / 65535;
+      const t = tmp.t.copy(wp[n]).addScaledVector(er, rw + 0.12);
+      if (q < 0.004 || !visible[j]) { setBasis(contactM, i, t, er, et, ez, 0, 0, 0); continue; }
+      setBasis(contactM, i, t, er, et, ez, 0.24, 0.9, P.wire_h * 0.92);
+      setCol(contactM, i, rampColor(seq, 0.12 + 0.88 * q));
+    }
+  }
+  contactM.instanceMatrix.needsUpdate = contactM.instanceColor.needsUpdate = true;
+  updatePanel();
+}
+
+// ---------- side panel
+function jawTarget(psi) {
+  const Ssum = P.psi_c + P.psi_p + P.psi_u, per = Ssum + P.psi_r;
+  const a = ((psi % per) + per) % per;
+  if (a < P.psi_c) return "Clamping"; if (a < P.psi_c + P.psi_p) return "Pushing";
+  if (a < Ssum) return "Releasing"; return "Resetting";
+}
+$("phases").innerHTML = [0, 1, 2].map(k => `<div class="ph"><span class="sw" style="background:var(--pair${k + 1})"></span><span>Pair ${k + 1}</span><span class="pill" id="ph${k}">–</span><span class="num" id="pc${k}" style="color:var(--ink2);font-size:12px"></span></div>`).join("");
+$("leg-load").innerHTML = [0, 1, 2].map(k => `<span><i style="border-color:var(--pair${k + 1})"></i>Jaw ${k + 1}</span><span><i class="dash" style="border-color:var(--pair${k + 1})"></i>Jaw ${k + 4}</span>`).join("");
+
+function sizeCanvas(cv) {
+  const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1, h = +cv.getAttribute("height");
+  cv.style.height = h + "px";
+  if (cv.width !== Math.round(r.width * dpr)) { cv.width = Math.round(r.width * dpr); }
+  cv._h = Math.round(h * dpr); cv.height = cv._h;
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); return [ctx, r.width, h];
+}
+function niceMax(v) { const p = Math.pow(10, Math.floor(Math.log10(v))); for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p; return 10 * p; }
+
+function drawLoad() {
+  const cv = $("c-load"), [ctx, W, H] = sizeCanvas(cv);
+  const m = { l: 40, r: 10, t: 8, b: 30 }, pw = W - m.l - m.r, ph = H - m.t - m.b;
+  const qmax = niceMax(D.load_max), L = P.jaw_length;
+  ctx.font = "11px " + getComputedStyle(document.body).getPropertyValue("--f-num"); ctx.textBaseline = "middle";
+  ctx.strokeStyle = T.line; ctx.fillStyle = T.muted; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) { const x = m.l + pw * i / 4; ctx.beginPath(); ctx.moveTo(x, m.t); ctx.lineTo(x, m.t + ph); ctx.stroke(); ctx.textAlign = "center"; ctx.fillText((qmax * i / 4).toFixed(qmax < 10 ? 1 : 0), x, m.t + ph + 11); }
+  for (const z of [0, 15, 30, 45]) { const y = m.t + ph * (1 - z / L); ctx.beginPath(); ctx.moveTo(m.l, y); ctx.lineTo(m.l + pw, y); ctx.stroke(); ctx.textAlign = "right"; ctx.fillText(z + "", m.l - 6, y); }
+  ctx.fillStyle = T.ink2; ctx.textAlign = "center"; ctx.fillText("line load [N/mm]", m.l + pw / 2, H - 6);
+  ctx.save(); ctx.translate(10, m.t + ph / 2); ctx.rotate(-Math.PI / 2); ctx.fillText("along jaw [mm]", 0, 0); ctx.restore();
+  const f = frame;
+  for (let j = 0; j < nJ; j++) {
+    let any = 0; for (let n = 0; n < nW; n++) any += loads[(f * nJ + j) * nW + n];
+    if (!any) continue;
+    ctx.strokeStyle = T.pair[j % 3]; ctx.lineWidth = 2; ctx.setLineDash(j >= 3 ? [5, 4] : []);
+    ctx.beginPath(); let started = false;
+    for (let n = 0; n < nW; n++) {
+      const z = wireRef[n * 3 + 2] + S * wireDisp[(f * nW + n) * 3 + 2] + L / 2;
+      if (z < -0.5 || z > L + 0.5) { started = false; continue; }
+      const q = loads[(f * nJ + j) * nW + n] / 65535 * D.load_max;
+      const x = m.l + pw * Math.min(1, q / qmax), y = m.t + ph * (1 - z / L);
+      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+}
+const hp = D.hist_psi, hf = D.hist_feed;
+function drawFeed() {
+  const cv = $("c-feed"), [ctx, W, H] = sizeCanvas(cv);
+  const m = { l: 40, r: 10, t: 8, b: 26 }, pw = W - m.l - m.r, ph = H - m.t - m.b;
+  const x0 = hp[0], x1 = hp[hp.length - 1], ymax = niceMax(Math.max(...hf) * 1.05);
+  const X = (v) => m.l + pw * (v - x0) / (x1 - x0), Y = (v) => m.t + ph * (1 - v / ymax);
+  ctx.font = "11px " + getComputedStyle(document.body).getPropertyValue("--f-num"); ctx.textBaseline = "middle";
+  ctx.strokeStyle = T.line; ctx.fillStyle = T.muted; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) { const v = ymax * i / 4, y = Y(v); ctx.beginPath(); ctx.moveTo(m.l, y); ctx.lineTo(m.l + pw, y); ctx.stroke(); ctx.textAlign = "right"; ctx.fillText(v.toFixed(0), m.l - 6, y); }
+  const step = (x1 - x0) > 600 ? 180 : 90;
+  for (let v = Math.ceil(x0 / step) * step; v <= x1; v += step) { ctx.textAlign = "center"; ctx.fillText(v + "°", X(v), m.t + ph + 12); }
+  ctx.strokeStyle = T.ink; ctx.lineWidth = 2; ctx.beginPath();
+  hp.forEach((p, i) => i ? ctx.lineTo(X(p), Y(hf[i])) : ctx.moveTo(X(p), Y(hf[i]))); ctx.stroke();
+  const ps = D.psi[frame];
+  ctx.strokeStyle = T.pair[0]; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(X(ps), m.t); ctx.lineTo(X(ps), m.t + ph); ctx.stroke();
+  ctx.fillStyle = T.pair[0]; ctx.beginPath(); ctx.arc(X(ps), Y(D.feed[frame]), 4, 0, 7); ctx.fill();
+  cv._map = { X0: m.l, pw, x0, x1 };
+}
+$("c-feed").addEventListener("click", (e) => {
+  const cv = $("c-feed"), r = cv.getBoundingClientRect(), mp = cv._map; if (!mp) return;
+  const v = mp.x0 + (e.clientX - r.left - mp.X0) / mp.pw * (mp.x1 - mp.x0);
+  let best = 0; D.psi.forEach((p, i) => { if (Math.abs(p - v) < Math.abs(D.psi[best] - v)) best = i; });
+  setFrame(best);
+});
+
+function updatePanel() {
+  const f = frame, ps = D.psi[f];
+  $("o-psi").textContent = ps.toFixed(1) + "°";
+  $("k-feed").textContent = D.feed[f].toFixed(1) + " N";
+  $("k-wz").textContent = (-D.wire_travel[f]).toFixed(3) + " mm";
+  let tot = 0, pc = [0, 0, 0];
+  for (let j = 0; j < nJ; j++) for (let n = 0; n < nW; n++) { const v = loads[(f * nJ + j) * nW + n] / 65535 * D.load_max * P.wire_h; tot += v; pc[j % 3] += v / 2; }
+  $("k-clamp").textContent = tot.toFixed(0) + " N";
+  let um = 0; for (let l = 0; l < nL; l++) um = Math.max(um, leafUtil[f * nL + l]);
+  $("k-util").textContent = (um / 255 * 1.5).toFixed(2);
+  for (let k = 0; k < 3; k++) {
+    const name = jawTarget(ps - 60 * k), el = $("ph" + k);
+    el.textContent = name; el.classList.toggle("on", name === "Pushing" || name === "Clamping" || name === "Releasing");
+    $("pc" + k).textContent = pc[k] > 0.5 ? pc[k].toFixed(0) + " N/jaw" : "open";
+  }
+  drawLoad(); drawFeed();
+}
+
+// ---------- controls
+const slider = $("frame"); slider.max = nF - 1;
+function setFrame(f) { frame = Math.max(0, Math.min(nF - 1, f)); slider.value = frame; update(); }
+slider.addEventListener("input", () => setFrame(+slider.value));
+$("mag").addEventListener("input", (e) => { mag = +e.target.value; $("magv").textContent = "×" + mag; update(); });
+$("mods").innerHTML = alphas.map((_, k) => `<label for="mod${k}"><input type="checkbox" id="mod${k}" checked> M${k + 1}</label>`).join("");
+alphas.forEach((_, k) => $("mod" + k).addEventListener("change", (e) => { visible[k] = e.target.checked; update(); }));
+let playing = false, acc = 0, last = 0;
+const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+$("play").addEventListener("click", () => { playing = !playing; $("play").textContent = playing ? "Pause" : "Play"; });
+
+function setView(v) {
+  document.querySelectorAll(".vbtn").forEach(b => b.classList.toggle("on", b.dataset.view === v));
+  showFlex = v !== "wire";
+  groundM.visible = v !== "wire";
+  const hide = v === "all" ? [] : [0, 5];
+  alphas.forEach((_, k) => { visible[k] = !hide.includes(k); $("mod" + k).checked = visible[k]; });
+  if (v === "wire") { camera.position.set(50, 12, 70); controls.target.set(0, 0, 0); }
+  else { camera.position.set(110, 95, 150); controls.target.set(0, 0, 0); }
+  update();
+}
+document.querySelectorAll(".vbtn").forEach(b => b.addEventListener("click", () => setView(b.dataset.view)));
+function resize() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", () => { resize(); updatePanel(); });
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { setTimeout(() => { readTokens(); paintRamps(); scene.background = new THREE.Color(T.bg); update(); }, 30); });
+new MutationObserver(() => { readTokens(); paintRamps(); scene.background = new THREE.Color(T.bg); update(); }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+scene.background = new THREE.Color(T.bg);
+resize();
+// start at the most loaded frame so the first still shows contact
+let bestF = 0, bestV = -1; for (let f = 0; f < nF; f++) { if (D.feed[f] > bestV) { bestV = D.feed[f]; bestF = f; } }
+frame = Math.floor(nF * 0.75); slider.value = frame;
+setView("cut");
+function loop(ts) {
+  requestAnimationFrame(loop);
+  if (playing && !reduce) { acc += (ts - last) / 1000 * 24 * +$("speed").value; while (acc >= 1) { acc -= 1; frame = (frame + 1) % nF; } slider.value = frame; update(); }
+  else if (playing) { frame = (frame + 1) % nF; slider.value = frame; update(); }
+  last = ts; controls.update(); renderer.render(scene, camera);
+}
+requestAnimationFrame(loop);
+})();
+</script>
