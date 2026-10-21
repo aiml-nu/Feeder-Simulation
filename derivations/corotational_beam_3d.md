@@ -87,6 +87,33 @@ Mitchell 1986):
 gives a loss of 3.4% vs 4.0% at 100 N, 5.8% vs 5.9% at 150 N and 8.1% vs 7.7% at
 200 N. η = 1e-3 delays helix formation to about 120 N, so keep η ≤ 1e-4.
 
+## Compliant printed mounts
+
+With `k_mount > 0`, every stack end (the jaw adapter, both sides of each input
+body, and the housing) roots its 15 leaves into a small rigid block. The block
+joins its body through a 6-DOF bushing (`springs.Bushings`):
+
+    d  = R_Aᵀ (x_B − x_A,point),   θ = log(R_Aᵀ R_B)
+    U  = ½ k_t |d|² + ½ k_r |θ|²,   k_r = k_t · (span/√12)²
+
+That is, a uniform elastic interface over the stack height, measured in the
+body frame so it is objective under rigid motion. 96 blocks add 576 DOFs.
+Order of magnitude for a printed root block: E·A/L ≈ 1000 MPa × (22 × 5) mm² /
+5–10 mm ≈ 1–2 × 10⁴ N/mm. The swept range is 3 × 10³ to 3 × 10⁴ N/mm.
+
+## Leaf imperfection
+
+A geometric imperfection is required, not optional. With perfectly straight
+leaves the imposed motions barely excite the first (symmetric) buckling mode,
+and Newton follows the unstable straight branch. In the single-module test the
+leaves reach 1.72 P_cr with several negative tangent eigenvalues, and clamp
+force is overstated by about 20%. Below about 20 µm the same happens or the
+solve stalls. From 20 µm up the path is stable, and the peak clamp force falls
+from about 410 N (20 µm) to 386 N (50 µm) to 358 N (100 µm): the imperfection is
+a real physical parameter (print straightness), not just a numerical device.
+Default: 50 µm, first fixed-fixed mode shape, every leaf bowed the same way
+(`imp_sign = "same"`; `"random"` gives seeded random signs).
+
 ## Mesh
 
 8 elements per leaf is converged: 8, 10, 12 and 16 agree within 1% for clamp

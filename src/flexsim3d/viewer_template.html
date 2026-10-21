@@ -341,7 +341,7 @@ function quatFromVec(px, py, pz, mag) {
 let frame = 0, mag = 5, selLeaf = 0;
 const leafModule = D.leaf_module;
 const pts = new Float32Array(nP * 3), Rs = new Array(nP);
-const vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3(), vT = new THREE.Vector3(), q0 = new THREE.Vector3(), q1 = new THREE.Vector3();
+const vW = new THREE.Vector3(), vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3(), vT = new THREE.Vector3(), q0 = new THREE.Vector3(), q1 = new THREE.Vector3();
 const selColor = () => new THREE.Color(T.select);
 
 function hermite(pa, ta, pb, tb, L, u, out) {
@@ -375,8 +375,9 @@ function update() {
         hermite(pa, ta, pb, tb, L, u1, pB);
         q0.set(pA[0], pA[2], -pA[1]); q1.set(pB[0], pB[2], -pB[1]);
         vA.subVectors(q1, q0); const len = vA.length(); vA.multiplyScalar(1 / len);
-        const w = V((1 - um) * wa[0] + um * wb[0], (1 - um) * wa[1] + um * wb[1], (1 - um) * wa[2] + um * wb[2]);
-        vC.copy(w).addScaledVector(vA, -w.dot(vA)).normalize();
+        const wx = (1 - um) * wa[0] + um * wb[0], wy = (1 - um) * wa[1] + um * wb[1], wz = (1 - um) * wa[2] + um * wb[2];
+        vW.set(wx, wz, -wy);                          // reuse: no per-segment allocation
+        vC.copy(vW).addScaledVector(vA, -vW.dot(vA)).normalize();
         vB.crossVectors(vC, vA);
         vT.addVectors(q0, q1).multiplyScalar(0.5);
         if (show) setBasis(leaves, i, vT, vA, vB, vC, len * 1.02, P.t, P.w); else setBasis(leaves, i, vT, vA, vB, vC, 0, 0, 0);
@@ -437,9 +438,16 @@ function update() {
 
 // ---------- charts
 function sizeCanvas(cv) {
-  const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1, h = +cv.getAttribute("height");
-  cv.style.height = h + "px"; cv.width = Math.round(r.width * dpr); cv.height = Math.round(h * dpr);
-  const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // CSS height comes from the markup's height attribute, read ONCE: assigning
+  // cv.height (the backing-store size) rewrites that attribute, so re-reading it
+  // on a high-DPI screen grew every chart by devicePixelRatio on each redraw.
+  if (!cv.dataset.h) cv.dataset.h = cv.getAttribute("height");
+  const h = +cv.dataset.h, dpr = window.devicePixelRatio || 1;
+  cv.style.height = h + "px";
+  const r = cv.getBoundingClientRect(), bw = Math.round(r.width * dpr), bh = Math.round(h * dpr);
+  if (cv.width !== bw) cv.width = bw;
+  if (cv.height !== bh) cv.height = bh;
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, r.width, h);
   ctx.font = "11px " + T.num; ctx.textBaseline = "middle"; return [ctx, r.width, h];
 }
 function niceMax(v) { if (!(v > 0)) return 1; const p = Math.pow(10, Math.floor(Math.log10(v))); for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p; return 10 * p; }
@@ -620,8 +628,8 @@ $("mag").addEventListener("input", (e) => { mag = +e.target.value; $("magv").tex
 $("mods").innerHTML = alphas.map((_, k) => `<label for="mod${k}"><input type="checkbox" id="mod${k}" checked> M${k + 1}</label>`).join("");
 alphas.forEach((_, k) => $("mod" + k).addEventListener("change", (e) => { visible[k] = e.target.checked; update(); }));
 let playing = false, acc = 0, last = 0;
-const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-$("play").addEventListener("click", () => { playing = !playing; $("play").textContent = playing ? "Pause" : "Play"; });
+const FPS = 15;   // playback rate at 1x (frames of simulation per second)
+$("play").addEventListener("click", () => { playing = !playing; acc = 0; last = 0; $("play").textContent = playing ? "Pause" : "Play"; });
 const ray = new THREE.Raycaster(); let down = null;
 canvas.addEventListener("pointerdown", (e) => { down = [e.clientX, e.clientY]; });
 canvas.addEventListener("pointerup", (e) => {
@@ -656,8 +664,10 @@ selectLeaf(selLeaf);
 function loop(ts) {
   requestAnimationFrame(loop);
   if (playing) {
-    if (!reduce) { acc += (ts - last) / 1000 * 20 * +$("speed").value; let adv = 0; while (acc >= 1) { acc -= 1; adv++; } if (adv) { frame = (frame + adv) % nF; slider.value = frame; update(); } }
-    else { frame = (frame + 1) % nF; slider.value = frame; update(); }
+    // time-based: FPS frames per second whatever the display refresh rate; at most
+    // one frame per repaint (no skipping bursts after a slow redraw or a tab switch)
+    if (last) acc += Math.min(ts - last, 100) / 1000 * FPS * +$("speed").value;
+    if (acc >= 1) { acc = Math.min(acc - 1, 1); frame = (frame + 1) % nF; slider.value = frame; update(); }
   }
   last = ts; controls.update(); renderer.render(scene, camera);
 }

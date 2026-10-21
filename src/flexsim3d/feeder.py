@@ -30,6 +30,7 @@ import numpy as np
 
 from .beam import Section
 from .contact import WireJawContact, WireTubeContact
+from .springs import Bushings
 from .model import Model
 
 
@@ -46,7 +47,8 @@ class FeederParams:
     N_leaves: int = 15              # leaves per stack
     pitch: float = 1.5              # leaf spacing in a stack [assumed]
     n_el_leaf: int = 8              # beam elements per leaf (converged; 4 is ~15% stiff post-buckling)
-    imperfection: float = 0.05      # leaf initial bow amplitude, mm (seeded random sign); ~FDM print tolerance
+    imperfection: float = 0.05      # leaf initial bow amplitude, mm; ~FDM print tolerance. Needed: see README
+    imp_sign: str = "same"          # "same" (every leaf bowed the same way) or "random" (seeded signs)
     seed: int = 0
     # layout
     n_modules: int = 6
@@ -56,6 +58,11 @@ class FeederParams:
     d_input: float = 4.0            # input body length along arm [assumed]
     jaw_length: float = 45.0
     level_gap: float = 0.0          # extra z gap between top and bottom stacks at the jaw
+    # compliant printed mounts: every stack end roots into a block joined to its body
+    # (jaw adapter, input body, housing) by a 6-DOF bushing. 0 = rigid (no blocks).
+    k_mount: float = 0.0            # N/mm, translational stiffness per stack-end block
+    # rotational stiffness = k_mount * l_rot^2, l_rot = stack span / sqrt(12)
+    # (the bushing acts like a uniform elastic interface over the stack height)
     # wire
     d_wire: float = 0.9
     E_wire: float = 70000.0         # ER5356
@@ -65,7 +72,7 @@ class FeederParams:
     wire_h: float = 0.5             # wire element length
     k_feed: float = 100.0           # N/mm, spring at the wire's bottom end (nozzle / deposition resistance)
     # wire in the spindle tube (tube_length = 0: no tube, short free wire + guide)
-    tube_length: float = 250.0      # mm of wire inside the orbital flexure tube, ends at the nozzle
+    tube_length: float = 325.0      # mm of wire inside the orbital flexure tube (as built), ends at the nozzle
     tube_gap: float = 3.0           # jaw bottom -> tube entry
     tube_id: float = 1.0            # flexure tube ID (paper: d_i = 1 mm)
     mu_tube: float = 0.3            # Al wire on steel tube wall
@@ -173,7 +180,9 @@ class Feeder:
                  -1: -zc_top - (np.arange(p.N_leaves) - (p.N_leaves - 1) / 2) * p.pitch}
         self.modules = []
         self.leaves = []           # BeamGroup list with tags
+        self.mount_pairs = []      # (body, block) for compliant mounts
         bow = lambda s: 0.5 * (1 - np.cos(2 * np.pi * s))   # fixed-fixed first mode shape
+        sgn_imp = (lambda: 1.0) if p.imp_sign == "same" else (lambda: rng.choice([-1, 1]))
         for k in range(p.n_modules):
             al = np.deg2rad(360.0 / p.n_modules * k)
             er = np.array([np.cos(al), np.sin(al), 0.0])
@@ -198,18 +207,30 @@ class Feeder:
                 inp = m.add_rigid(Xin, f"input{k}{'T' if lev > 0 else 'B'}")
                 mod["inputs"][lev] = inp
                 for ai, d in enumerate(arms):
+                    # attachment bodies for the four stack ends of this arm/level
+                    att = dict(jaw=jaw, inA=inp, inS=inp, gnd=self.ground)
+                    if p.k_mount > 0:
+                        zz = np.array(z_jaw[lev])
+                        cen = dict(jaw=apex + s_in * d + [0, 0, zz.mean()],
+                                   inA=apex + s_out * d + [0, 0, zz.mean() + dz_ang],
+                                   inS=apex + s_g0 * d + [0, 0, zz.mean() + dz_ang],
+                                   gnd=apex + s_g1 * d + [0, 0, zz.mean() + dz_ang])
+                        for key in ("jaw", "inA", "inS", "gnd"):
+                            blk = m.add_rigid(cen[key], f"m{k}L{lev}a{ai}/{key}_block")
+                            self.mount_pairs.append((att[key], blk))
+                            att[key] = blk
                     for i in range(p.N_leaves):
                         zj = z_jaw[lev][i]
                         P_jaw = apex + s_in * d + np.array([0, 0, zj])
                         P_in = apex + s_out * d + np.array([0, 0, zj + dz_ang])
                         P_g0 = apex + s_g0 * d + np.array([0, 0, zj + dz_ang])
                         P_g1 = apex + s_g1 * d + np.array([0, 0, zj + dz_ang])
-                        imp = (p.imperfection * rng.choice([-1, 1]), bow) if p.imperfection else None
+                        imp = (p.imperfection * sgn_imp(), bow) if p.imperfection else None
                         tags = dict(module=k, level=lev, arm=ai, index=i)
-                        g1 = m.add_member(jaw, P_jaw, inp, P_in, leaf, (0, 0, 1), p.n_el_leaf, imp,
+                        g1 = m.add_member(att["jaw"], P_jaw, att["inA"], P_in, leaf, (0, 0, 1), p.n_el_leaf, imp,
                                           f"m{k}L{lev}a{ai}i{i}/angled", dict(tags, kind="angled"))
-                        imp = (p.imperfection * rng.choice([-1, 1]), bow) if p.imperfection else None
-                        g2 = m.add_member(inp, P_g0, self.ground, P_g1, leaf, (0, 0, 1), p.n_el_leaf, imp,
+                        imp = (p.imperfection * sgn_imp(), bow) if p.imperfection else None
+                        g2 = m.add_member(att["inS"], P_g0, att["gnd"], P_g1, leaf, (0, 0, 1), p.n_el_leaf, imp,
                                           f"m{k}L{lev}a{ai}i{i}/straight", dict(tags, kind="straight"))
                         self.leaves += [g1, g2]
             # jaw contact edge
@@ -217,6 +238,10 @@ class Feeder:
                                t0=np.array([0, 0, 1.0]), n0=-er, L=p.jaw_length)
             self.modules.append(mod)
 
+        self.mounts = None
+        if self.mount_pairs:
+            l_rot = ((p.N_leaves - 1) * p.pitch + p.t) / np.sqrt(12.0)
+            self.mounts = m.add_term(Bushings(m, self.mount_pairs, p.k_mount, p.k_mount * l_rot**2))
         self.wire_nodes = []
         if with_wire:
             self._build_wire()

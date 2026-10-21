@@ -18,8 +18,8 @@ from flexsim3d.viewer_export import export
 ap = argparse.ArgumentParser()
 ap.add_argument("npz")
 ap.add_argument("--outdir", default=None)
-ap.add_argument("--viewer-frames", type=int, default=120)
-ap.add_argument("--viewer-revs", type=float, default=1.0, help="show the last N cam revolutions in the viewer")
+ap.add_argument("--viewer-frames", type=int, default=240)
+ap.add_argument("--viewer-revs", type=float, default=0.0, help="show only the last N cam revolutions (0 = whole run)")
 a = ap.parse_args()
 
 npz = pathlib.Path(a.npz)
@@ -37,7 +37,7 @@ plots.fig_tube(d, out / "tube_force.png")
 
 # viewer: frames from the last N revolutions
 qpsi = d["q_psi"]
-sel = np.nonzero(qpsi >= qpsi.max() - 360.0 * a.viewer_revs)[0]
+sel = np.arange(len(qpsi)) if a.viewer_revs <= 0 else np.nonzero(qpsi >= qpsi.max() - 360.0 * a.viewer_revs)[0]
 data = export(npz, out / "viewer_data.json", frames=sel, max_frames=a.viewer_frames)
 tpl = (ROOT / "src/flexsim3d/viewer_template.html").read_text()
 html = tpl.replace("/*__DATA__*/", (out / "viewer_data.json").read_text())

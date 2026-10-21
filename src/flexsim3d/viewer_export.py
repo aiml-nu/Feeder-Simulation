@@ -30,7 +30,9 @@ class _Pack:
     def __init__(self):
         self.parts, self.meta, self.off = [], {}, 0
 
-    def add(self, name, arr, kind, scale=None, delta=False):
+    def add(self, name, arr, kind, scale=None, delta=False, step=None):
+        """step: quantization step for 'i16' (coarser than needed for display
+        compresses far better); the scale never drops below max|arr|/32000."""
         """kind: 'f32' raw float32; 'i16' signed quantized (value = int*scale);
         'u16' unsigned quantized in [0, scale]."""
         arr = np.asarray(arr)
@@ -40,7 +42,8 @@ class _Pack:
         if kind == "f32":
             b = arr.astype("<f4")
         elif kind == "i16":
-            scale = scale or max(np.abs(arr).max() if arr.size else 0.0, 1e-12) / 32000.0
+            fine = max(np.abs(arr).max() if arr.size else 0.0, 1e-12) / 32000.0
+            scale = scale or max(step or 0.0, fine)
             b = np.round(arr / scale).astype("<i2")
         elif kind == "u16":
             scale = scale or max(arr.max() if arr.size else 0.0, 1e-12)
@@ -64,7 +67,7 @@ class _Pack:
         return base64.b64encode(gzip.compress(b"".join(self.parts), 9)).decode()
 
 
-def export(npz, out_json, frames=None, max_frames=120):
+def export(npz, out_json, frames=None, max_frames=240):
     d = dict(np.load(npz, allow_pickle=False))
     p = FeederParams(**json.loads(str(d["params"])))
     F = Feeder(p)
@@ -140,13 +143,13 @@ def export(npz, out_json, frames=None, max_frames=120):
     pk.add("leaf_tan0", tan0, "f32")
     pk.add("leaf_wdir", wdir, "f32")
     pk.add("leaf_tdir", tdir, "f32")
-    pk.add("leaf_disp", np.array(L_disp), "i16", delta=True)
-    pk.add("leaf_rot", np.array(L_rot), "i16", delta=True)
+    pk.add("leaf_disp", np.array(L_disp), "i16", delta=True, step=5e-4)     # 0.5 um
+    pk.add("leaf_rot", np.array(L_rot), "i16", delta=True, step=2e-5)       # rad
     for name, arr in (("s_axial", S_ax), ("s_torsion", S_tor), ("s_thin", S_thin), ("s_wide", S_wide)):
-        pk.add(name, np.array(arr), "i16", delta=True)
+        pk.add(name, np.array(arr), "i16", delta=True, step=0.02)          # MPa
     pk.add("leaf_util", np.clip(np.array(util), 0, 1.5), "u16", scale=1.5)
     pk.add("wire_ref", m.Xarr[wire], "f32")
-    pk.add("wire_disp", np.array(W_disp), "i16", delta=True)
+    pk.add("wire_disp", np.array(W_disp), "i16", delta=True, step=5e-4)
     pk.add("body_ref", m.Xarr[bodies], "f32")
     pk.add("body_pose", np.array(B_pose), "f32")
     pk.add("jaw_load", np.array(J_load), "u16")
