@@ -14,17 +14,55 @@ Formulation and validation notes: `derivations/corotational_beam_3d.md`.
 ```bash
 pip install -r requirements-3d.txt                 # numpy, scipy, jax, matplotlib
 python tests/test_flexsim3d_validation.py          # 13 closed-form checks, ~30 s
-python examples/feeder_v2_3d/run_feeder.py --revs 2 --set k_feed=300 --out examples/feeder_v2_3d/results/tube325.npz
-python examples/feeder_v2_3d/make_figures.py examples/feeder_v2_3d/results/tube325.npz
+python examples/feeder_v2_3d/run_feeder.py --revs 2 --set k_feed=300 --out examples/feeder_v2_3d/results/cad/tube325_gap0.npz
+python examples/feeder_v2_3d/make_figures.py examples/feeder_v2_3d/results/cad/tube325_gap0.npz
 ```
 
-- Override any `FeederParams` field with `--set`, e.g. `--set tube_length=0 clearance=0.1 k_mount=10000`.
-- Two cam revolutions reach steady state with `k_feed=300`. That takes ~40 min
-  on 2 cores with the 325 mm tube, ~15–20 min without.
-- `make_figures.py` writes slide PNGs and `feeder_viewer.html`, a
-  self-contained interactive viewer. Open it in a current browser; it needs
-  internet to load three.js. It plays back the whole run and has a leaf
-  inspector (click any leaf) and a wire-in-tube panel.
+### Parameter change -> run -> viewer (manual workflow)
+
+1. **Pick parameters.** Every geometry, material, contact and solver input is
+   a field of `FeederParams` in `src/flexsim3d/feeder.py` (with units and a
+   comment). Either edit the default there, or override per run with
+   `--set name=value ...` (no spaces around `=`), e.g.
+   `--set clearance=0.1 tube_length=0 k_mount=10000 E=1200`.
+   The values actually used are stored in the output `.npz` (`params`), so a
+   result always carries its own inputs.
+2. **Run.** `run_feeder.py --revs 2 --set ... --out <name>.npz`.
+   Progress prints one line per 10° of cam. Useful flags: `--revs` (cam
+   revolutions; 2 reaches steady state with `k_feed=300`), `--dpsi` (cam step,
+   default 1°), `--eig-every N` (stability check). `tube_length=0` drops the
+   tube and is ~2× faster.
+3. **Figures + viewer.** `make_figures.py <name>.npz` writes
+   `<name>_figs/`: slide PNGs and `feeder_viewer.html`. Open that file in a
+   browser (it needs internet for three.js). `--viewer-frames` sets how many
+   frames are embedded (default 240 over the whole run).
+4. **Compare runs.** `sweep_summary.py [results_dir]` tabulates and plots the
+   gap / mount sweep (it skips runs that are missing).
+
+### How a run starts (rest -> in action)
+
+The model starts in the as-printed, unloaded state: all leaves at their
+CAD shape (plus the 50 µm bow), all input bodies at z = 0, and each jaw edge
+`clearance` away from the wire. There is a separate **ramp** before the cam
+turns: over `n_ramp` = 10 load increments the input bodies are moved
+linearly from 0 to their cam positions at ψ = 0 (different for each pair,
+because the pairs are 60° of cam apart). Only then does the cam advance in
+1° steps. The ramp increments are stored with `ramp < 1` and are excluded
+from the steady-state statistics. Because the problem is quasi-static and
+path-dependent only through friction, the ramp just has to be gentle enough
+for Newton; it has no physical duration.
+
+### Viewer controls
+
+- **View** buttons: cutaway / full / wire + jaws / tube; M1–M6 show or hide modules.
+- **Leaf colour**: the field (compression / buckling load P/P_cr, combined stress,
+  axial, thin-direction bending, wide-direction bending, torsion), the min and
+  max colours, and the value mapped to the max colour ("Run maximum" resets it
+  to the largest value in the run). The legend follows.
+- **Contact load** checkbox: shows or hides the line-load markers on the wire,
+  the tube-contact colouring and their legend.
+- Click a leaf for the **leaf inspector** (axial force, both bending moments
+  and torsion along the leaf, through the run).
 
 Studies:
 
@@ -34,7 +72,7 @@ Studies:
 | `element_convergence.py` | elements per leaf (2–16) | ~2 min |
 | `tube_validation.py` | wire-in-tube friction loss vs. helical buckling theory | ~1–2 min |
 | `module_sweeps.py` | single module: mount stiffness and leaf-bow sweeps | ~1 min |
-| `sweep_summary.py` | summary of the full-feeder gap / mount sweeps | seconds |
+| `sweep_summary.py [dir]` | summary of the full-feeder gap / mount sweeps | seconds |
 
 ## Model
 
@@ -56,53 +94,78 @@ converted to input motions with the rigid-link inverse kinematics
 (A.13/A.14), φ = 30° half-angle. Pairs (k, k+3) are in phase; the three pairs
 are 60° of cam rotation apart.
 
-Assumed dimensions (not in the paper; all `FeederParams` fields): `pitch`
-1.5 mm, `r_apex` 4.5 mm, `s0` 2 mm, `d_input` 4 mm.
+Dimensions from CAD (`FeederParams`):
+- `pitch` = 1.27 mm: vertical leaf spacing within a stack.
+- `stack_gap` = 4.18 mm: vertical gap between the anchors of the lowest
+  angled top leaf and the highest angled bottom leaf, centred on the 45 mm jaw.
+- `d_input` = 9.6 mm: input body length along the arm (end of the straight
+  leaves to start of the angled leaves).
+- `root_to_jaw_face` = 19.14 mm: plan (top-view) distance from the jaw-side
+  root of the angled leaves to the middle of the jaw's flat face, same for
+  both arms. With `r_apex` = 4.5 mm this puts the roots s_root = 15.5 mm out
+  along each arm from the V apex.
+- Still assumed: `r_apex` 4.5 mm (V apex radius from the wire axis). Older
+  parameter sets used `s0` directly; set `root_to_jaw_face=0` to get that back.
 
-## Results (E = 1 GPa, μ = 0.2, k_feed = 300 N/mm, steady state = last 180°)
+## Results (CAD geometry, E = 1 GPa, μ = 0.2, k_feed = 300 N/mm, steady state = last 180°)
 
-Baseline with the 325 mm tube (`tube325`):
-- force at the nozzle: 94 / 98 / 108 N (min / mean / max)
-- tube loss: 1.8 N (1.7%) on average, 5.8 N at most, with wall contact on 75% of the in-tube wire
-- worst leaf P/P_cr: 0.95 (top stacks) and 0.72 (bottom)
-- peak leaf stresses: thin bending 12.8 MPa, axial 3.4, wide bending 1.7, torsion 0.2 MPa
+Result files are in `results/cad/` (`results/*.npz` from before the CAD update
+used the assumed dimensions and are kept for reference).
 
-### What could explain the measured 65 N? (`sweep_summary.png`, no tube)
+With the 325 mm tube (`tube325_gap0`, `tube325_gap0.1`; one viewer each):
+
+| | CAD, no gap | Jaw gap 0.1 mm |
+|---|---|---|
+| Force at nozzle (min / mean / max) | 90 / 94 / 103 N | 65 / 69 / 76 N |
+| Clamp per jaw (full grip) | 336 N | 164 N |
+| Tube friction loss (mean / max) | 1.6 N (1.6%) / 5.3 N | 0.6 N (0.9%) / 2.6 N |
+| Worst leaf P/P_cr, top / bottom stacks | 0.97 / 0.78 | 0.72 / 0.39 |
+| Peak thin-bending / axial / wide-bending / torsion stress | 14.1 / 3.5 / 1.8 / 0.3 MPa | 4.4 / 2.6 / 1.7 / 0.1 MPa |
+| Contact time spent slipping | 40% | 62% |
+
+The tube's own friction loss is small in both cases. The tube still lowers the
+0.1 mm-gap mean from 74 to 69 N because the buckled wire column adds axial
+compliance: part of each jaw stroke goes into compressing the helix instead
+of the nozzle spring.
+
+### What could explain the measured 65 N? (`results/cad/sweep_summary.png`, no tube)
 
 | Case | Feed force at nozzle (min / mean / max) | Clamp per jaw (full grip) |
 |---|---|---|
-| CAD (rigid mounts, no gap) | 88 / 102 / 123 N | 348 N |
-| Jaw gap 0.05 mm | 71 / 92 / 111 N | 274 N |
-| Jaw gap 0.10 mm | 64 / 75 / 90 N | 165 N |
-| Jaw gap 0.15 mm | 21 / 28 / 41 N | 53 N |
+| CAD (rigid mounts, no gap) | 84 / 97 / 117 N | 336 N |
+| Jaw gap 0.05 mm | 68 / 89 / 108 N | 270 N |
+| Jaw gap 0.10 mm | 63 / 74 / 89 N | 163 N |
+| Jaw gap 0.15 mm | 21 / 27 / 40 N | 52 N |
 | Jaw gap 0.20 mm | 0 (the jaws never touch) | 0 |
-| Mounts 10,000 N/mm | 86 / 102 / 121 N | 292 N |
-| Mounts 3,000 N/mm | 63 / 77 / 92 N | 192 N |
+| Mounts 10,000 N/mm | 82 / 98 / 118 N | 286 N |
+| Mounts 3,000 N/mm | 62 / 76 / 91 N | 190 N |
 
 - **A jaw gap acts strongly and very nonlinearly.** The design interference is
-  only δc/2 = 0.2 mm, so a gap takes it away one-for-one. 65 N mean
-  corresponds to a gap of about 0.11 mm on every jaw, which is plausible for
-  the press-fit. A gap also shortens each grip window: the jaws touch later
-  and let go sooner, and slip rises from 41% to 69% of the contact time at
-  0.1 mm.
+  only δc/2 = 0.2 mm, so a gap takes it away one-for-one. With the tube,
+  0.1 mm gives 69 N against the measured 65 N, so the measurement is
+  consistent with a press-fit gap of roughly 0.1 mm on every jaw. A gap also
+  shortens each grip window: the jaws touch later and let go sooner, and
+  slip rises from about 40% to 60–70% of the contact time.
 - **Mount compliance barely matters until it is very soft.** 10,000 N/mm
-  (estimated for solid printed blocks) cuts clamp force by 16% and leaves
+  (estimated for solid printed blocks) cuts clamp force by 15% and leaves
   feed force unchanged. Feed force here is limited by stroke and handover
-  slip, not friction capacity (348 N × 0.2 × 4 jaws ≈ 280 N available vs.
-  102 N delivered). Reaching 65 N needs roughly 2,000 N/mm or softer, which
-  would mean much softer prints than estimated.
+  slip, not friction capacity (336 N × 0.2 × 4 jaws ≈ 270 N available vs.
+  ~95 N delivered). Reaching 65 N needs softer than 3,000 N/mm, which would
+  mean much softer prints than estimated.
 - **Gap is therefore the more likely single explanation.** To tell them apart
   on the machine: a gap shows up as lost wire advance per revolution and a
   clamp that engages late in the cam cycle; soft mounts show up as lower clamp
   force with normal timing.
-- **The tube remains a ~2% effect**, and leaf bow trims the peak clamp force by
-  a few percent (`module_sweeps.png`).
+- **A gap also protects the leaves**: at 0.1 mm the top stacks stay at
+  0.72 P_cr and peak bending stress drops from 14 to 4 MPa, so the clamp is no
+  longer buckling-limited. Controlling the press-fit tolerance trades feed
+  force against leaf margin directly.
 
 Earlier findings that still hold:
-- **Clamp force is buckling-limited.** One module (`module_stiffness.png`):
-  initial stiffness 2317 N/mm per jaw, matching A.6 with cos²(φ/2). A.6 as
-  written gives 2675. The peak of about 385 N sits at the 0.2 mm design
-  interference.
+- **Clamp force is buckling-limited at zero gap.** One module
+  (`module_stiffness.png`): initial stiffness 2287 N/mm per jaw with the CAD
+  geometry (2317 with the old assumed one), matching A.6 with cos²(φ/2). A.6
+  as written gives 2675. It reaches 353 N at the 0.2 mm design interference.
 - **The top level is the critical stack.**
 - **Bending about the leaf's stiff axis (the V over-constraint) is about 15% of
   the thin-direction bending** (`stress_components.png`).
@@ -127,7 +190,7 @@ Earlier findings that still hold:
   eigenvalues, overstating clamp force by about 20%; below ~20 µm the solve
   stalls or does the same. From 20 µm up the path is stable, and the bow
   amplitude (print straightness) is then a physical parameter: 20 → 100 µm
-  lowers the peak clamp force about 410 → 360 N. The default is 50 µm,
+  lowers the peak clamp force about 376 → 330 N (CAD geometry). The default is 50 µm,
   first-mode shape, every leaf bowed the same way (`imp_sign`). Likewise, a
   near-straight wire never buckles into the tube wall.
 - Mesh: 8 elements per leaf is converged (8–16 agree within 1%);

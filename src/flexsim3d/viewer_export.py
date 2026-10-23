@@ -69,7 +69,7 @@ class _Pack:
 
 def export(npz, out_json, frames=None, max_frames=240):
     d = dict(np.load(npz, allow_pickle=False))
-    p = FeederParams(**json.loads(str(d["params"])))
+    p = FeederParams.from_dict(json.loads(str(d["params"])))
     F = Feeder(p)
     m = F.m
     Q = d["q_frames"].astype(np.float64)

@@ -109,7 +109,8 @@ and Newton follows the unstable straight branch. In the single-module test the
 leaves reach 1.72 P_cr with several negative tangent eigenvalues, and clamp
 force is overstated by about 20%. Below about 20 µm the same happens or the
 solve stalls. From 20 µm up the path is stable, and the peak clamp force falls
-from about 410 N (20 µm) to 386 N (50 µm) to 358 N (100 µm): the imperfection is
+from about 376 N (20 µm) to 355 N (50 µm) to 330 N (100 µm) with the CAD
+geometry: the imperfection is
 a real physical parameter (print straightness), not just a numerical device.
 Default: 50 µm, first fixed-fixed mode shape, every leaf bowed the same way
 (`imp_sign = "same"`; `"random"` gives seeded random signs).

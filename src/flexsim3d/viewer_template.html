@@ -61,6 +61,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .grow { flex: 1 1 220px; display: flex; align-items: center; gap: 8px; min-width: 0; }
 input[type=range] { width: 100%; accent-color: var(--accent); }
 .ctl { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink2); flex-wrap: wrap; }
+input.swatch { width: 34px; height: 24px; padding: 0 2px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); cursor: pointer; }
+input[type=number] { font-size: 12.5px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 4px; }
 select { font-family: var(--f-ui); font-size: 12.5px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 4px; }
 .num { font-family: var(--f-num); font-variant-numeric: tabular-nums; }
 .mods { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -110,12 +112,16 @@ footer { margin-top: 14px; color: var(--muted); font-size: 12px; max-width: 900p
       </div>
       <div class="hint">Drag to orbit · scroll to zoom · click a leaf to inspect it</div>
       <div class="legend3d" aria-hidden="true">
-        <div>Leaf compression / buckling load</div>
-        <div class="ramp" id="ramp-util"></div>
-        <div class="ramp-axis"><span>0</span><span>0.5</span><span>1.0</span><span>1.5</span></div>
-        <div style="margin-top:4px">Contact line load on wire</div>
-        <div class="ramp" id="ramp-load"></div>
-        <div class="ramp-axis"><span>0</span><span id="lmax"></span></div>
+        <div id="lg-leaf">
+          <div id="lg-leaf-title">Leaf compression / buckling load</div>
+          <div class="ramp" id="ramp-util"></div>
+          <div class="ramp-axis" id="lg-leaf-axis"></div>
+        </div>
+        <div id="lg-load" style="margin-top:4px">
+          <div>Contact line load on wire</div>
+          <div class="ramp" id="ramp-load"></div>
+          <div class="ramp-axis"><span>0</span><span id="lmax"></span></div>
+        </div>
       </div>
       <div id="loading">Loading simulation data…</div>
       <div id="err"></div>
@@ -133,6 +139,22 @@ footer { margin-top: 14px; color: var(--muted); font-size: 12px; max-width: 900p
         <button type="button" class="vbtn" data-view="wire">Wire + jaws</button>
         <button type="button" class="vbtn" data-view="tube">Tube</button></div>
       <div class="mods" id="mods" aria-label="Show modules"></div>
+    </div>
+    <div class="transport" id="colorbar">
+      <label class="ctl" for="cfield">Leaf colour
+        <select id="cfield">
+          <option value="util">Compression / buckling load</option>
+          <option value="combined">Peak stress (axial + bending)</option>
+          <option value="axial">Axial stress</option>
+          <option value="thin">Bending stress, thin</option>
+          <option value="wide">Bending stress, wide</option>
+          <option value="torsion">Torsion shear</option>
+        </select></label>
+      <label class="ctl" for="cmin">min <input type="color" id="cmin" class="swatch"></label>
+      <label class="ctl" for="cmax">max <input type="color" id="cmax" class="swatch"></label>
+      <label class="ctl" for="crange">scale to <input type="number" id="crange" min="0" step="any" class="num" style="width:72px"> <span id="cunit"></span></label>
+      <button type="button" class="vbtn" id="cauto">Run maximum</button>
+      <label class="ctl" for="showload"><input type="checkbox" id="showload" checked> Contact load</label>
     </div>
   </div>
 
@@ -248,9 +270,25 @@ readTokens();
 const seq = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"];
 const lerpHex = (a, b, t) => new THREE.Color(a).lerp(new THREE.Color(b), t);
 function rampColor(stops, t) { t = Math.min(1, Math.max(0, t)); const x = t * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(x)); return lerpHex(stops[i], stops[i + 1], x - i); }
-function utilColor(u) { return u < 1 ? rampColor([T.leaf, T.mid], Math.pow(u, 1.5)) : rampColor([T.mid, T.hot], (u - 1) / 0.5); }
+// ---- leaf colouring: field, two-colour ramp, scale
+const FIELDS = {
+  util: { title: "Leaf compression / buckling load", unit: "× P_cr" },
+  combined: { title: "Leaf peak stress (axial + bending)", unit: "MPa" },
+  axial: { title: "Leaf axial stress", unit: "MPa" },
+  thin: { title: "Leaf bending stress, thin direction", unit: "MPa" },
+  wide: { title: "Leaf bending stress, wide (stiff axis)", unit: "MPa" },
+  torsion: { title: "Leaf torsion shear stress", unit: "MPa" },
+};
+const CS = { field: "util", min: [0, 0, 0], max: [1, 0, 0], scale: 1, custom: false };
+const hexRGB = (h) => { const c = new THREE.Color(h); return [c.r, c.g, c.b]; };
 function paintRamps() {
-  $("ramp-util").style.background = `linear-gradient(90deg, ${[0, 0.25, 0.5, 0.67, 0.8, 0.9, 1].map(t => utilColor(t * 1.5).getStyle()).join(",")})`;
+  if (!CS.custom) { $("cmin").value = new THREE.Color(T.leaf).getHexString().replace(/^/, "#"); $("cmax").value = new THREE.Color(T.hot).getHexString().replace(/^/, "#"); }
+  CS.min = hexRGB($("cmin").value); CS.max = hexRGB($("cmax").value);
+  $("ramp-util").style.background = `linear-gradient(90deg, ${$("cmin").value}, ${$("cmax").value})`;
+  const fd = FIELDS[CS.field], sc = CS.scale, fx = (v) => (sc >= 10 ? v.toFixed(0) : sc >= 1 ? v.toFixed(1) : v.toFixed(2));
+  $("lg-leaf-title").textContent = fd.title;
+  $("lg-leaf-axis").innerHTML = `<span>0</span><span>${fx(sc / 2)}</span><span>≥ ${fx(sc)} ${fd.unit}</span>`;
+  $("cunit").textContent = fd.unit;
   $("ramp-load").style.background = `linear-gradient(90deg, ${seq.join(",")})`;
 }
 paintRamps();
@@ -258,7 +296,7 @@ let jawLoadMax = 0; for (let i = 0; i < jawLoad.length; i++) jawLoadMax = Math.m
 $("lmax").textContent = jawLoadMax.toFixed(1) + " N/mm";
 
 $("sub").textContent = `${nL} leaves × ${nE} elements, ${nJ} jaws, ${P.d_wire} mm wire` + (hasTube ? `, ${P.tube_length} mm in the tube` : "") + "; quasi-static, geometrically nonlinear";
-const chips = [["E", P.E_flex + " MPa"], ["μ jaw", P.mu], ["μ tube", hasTube ? P.mu_tube : "–"], ["k nozzle", P.k_feed + " N/mm"], ["θ", P.theta_deg + "°"], ["V", P.V_angle_deg + "°"]];
+const chips = [["E", P.E_flex + " MPa"], ["μ jaw", P.mu], ["μ tube", hasTube ? P.mu_tube : "–"], ["k nozzle", P.k_feed + " N/mm"], ["jaw gap", (P.clearance ?? 0) + " mm"], ...(P.k_mount > 0 ? [["k mount", P.k_mount + " N/mm"]] : []), ["θ", P.theta_deg + "°"], ["V", P.V_angle_deg + "°"]];
 $("chips").innerHTML = chips.map(([a, b]) => `<span class="chip">${a} ${b}</span>`).join("");
 $("foot").textContent = `Deformations are magnified for display. Leaves are drawn as cubic Hermite curves through the solved node positions and rotations (the element's own shape). Peak leaf compression over the run: ${D.util_peak.toFixed(2)} × P_cr.`;
 
@@ -285,6 +323,7 @@ const leaves = instanced(box, nSeg);
 const wireSegs = instanced(new THREE.CylinderGeometry(1, 1, 1, 12, 1), nW - 1, { metalness: 0.35, roughness: 0.4 });
 const contactM = instanced(box, nJ * nJW, { roughness: 0.5 });
 const jawsM = instanced(box, nJ, { metalness: 0.5, roughness: 0.35 });
+const adapterM = instanced(box, nJ, { transparent: true, opacity: 0.85 });   // printed jaw adapter (blade -> leaf roots)
 const inputsM = instanced(box, 2 * nJ);
 const groundM = instanced(box, nJ * 4, { transparent: true, opacity: 0.55 });
 let tubeMesh = null;
@@ -304,8 +343,8 @@ function setBasis(mesh, i, t, a, b, c, la, lb, lc) {
 const setCol = (mesh, i, col) => mesh.instanceColor.setXYZ(i, col.r, col.g, col.b);
 
 const th = P.theta_deg * Math.PI / 180, phh = P.V_angle_deg * Math.PI / 360;
-const sOut = P.s0 + P.L2 * Math.cos(th), sG0 = sOut + P.d_input, sG1 = sG0 + P.L1;
-const span = (P.N_leaves - 1) * P.pitch + P.t, zcTop = P.jaw_length / 4 + P.level_gap / 2;
+const sOut = (P.s_root ?? P.s0) + P.L2 * Math.cos(th), sG0 = sOut + P.d_input, sG1 = sG0 + P.L1;
+const span = (P.N_leaves - 1) * P.pitch + P.t, zcTop = P.zc_top ?? (P.jaw_length / 4 + P.level_gap / 2);
 const alphas = D.jaw_alpha, visible = new Array(nJ).fill(true);
 let showFlex = true;
 (function () {
@@ -350,13 +389,41 @@ function hermite(pa, ta, pb, tb, L, u, out) {
   return out;
 }
 
+// field value of leaf l, element e, at element coordinate um (stresses are |local value|)
+function segValue(f, l, e, um) {
+  const ie = (f * nL + l) * nE + e, ib = (f * nL + l) * nP + e;
+  const thin = () => Math.abs((1 - um) * sThin[ib] + um * sThin[ib + 1]);
+  const wide = () => Math.abs((1 - um) * sWide[ib] + um * sWide[ib + 1]);
+  switch (CS.field) {
+    case "util": return leafUtil[f * nL + l];
+    case "axial": return Math.abs(sAx[ie]);
+    case "torsion": return Math.abs(sTor[ie]);
+    case "thin": return thin();
+    case "wide": return wide();
+    default: return Math.abs(sAx[ie]) + thin() + wide();
+  }
+}
+const runMax = {};
+function fieldRunMax(fd) {
+  if (runMax[fd] !== undefined) return runMax[fd];
+  if (fd === "util") return (runMax[fd] = 1.0);          // scale buckling at 1.0 by default
+  let mx = 0;
+  const A = { axial: [sAx], torsion: [sTor], thin: [sThin], wide: [sWide], combined: null }[fd];
+  if (A) { for (const arr of A) for (let i = 0; i < arr.length; i++) mx = Math.max(mx, Math.abs(arr[i])); }
+  else { for (let f = 0; f < nF; f++) for (let l = 0; l < nL; l++) for (let e = 0; e < nE; e++) mx = Math.max(mx, segValue(f, l, e, 0), segValue(f, l, e, 1)); }
+  return (runMax[fd] = mx || 1);
+}
+function niceUp(v) { const p = Math.pow(10, Math.floor(Math.log10(v))); for (const m of [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10]) if (m * p >= v - 1e-9) return m * p; return 10 * p; }
+function setField(fd) { CS.field = fd; CS.scale = fd === "util" ? 1.0 : niceUp(fieldRunMax(fd)); $("crange").value = CS.scale; paintRamps(); update(); }
+let showLoad = true;
+
 function update() {
   const f = frame;
   const scol = selColor();
   const pA = [0, 0, 0], pB = [0, 0, 0];
   for (let l = 0; l < nL; l++) {
     const show = visible[leafModule[l]] && showFlex;
-    const col = l === selLeaf ? scol : utilColor(leafUtil[f * nL + l]);
+    const isSel = l === selLeaf;
     for (let j = 0; j < nP; j++) {
       const r = (l * nP + j) * 3, o = ((f * nL + l) * nP + j) * 3;
       pts[j * 3] = leafRef[r] + mag * leafDisp[o]; pts[j * 3 + 1] = leafRef[r + 1] + mag * leafDisp[o + 1]; pts[j * 3 + 2] = leafRef[r + 2] + mag * leafDisp[o + 2];
@@ -381,7 +448,11 @@ function update() {
         vB.crossVectors(vC, vA);
         vT.addVectors(q0, q1).multiplyScalar(0.5);
         if (show) setBasis(leaves, i, vT, vA, vB, vC, len * 1.02, P.t, P.w); else setBasis(leaves, i, vT, vA, vB, vC, 0, 0, 0);
-        setCol(leaves, i, col);
+        if (isSel) setCol(leaves, i, scol);
+        else {
+          const t = Math.min(1, Math.max(0, segValue(f, l, e, um) / CS.scale));
+          leaves.instanceColor.setXYZ(i, CS.min[0] + t * (CS.max[0] - CS.min[0]), CS.min[1] + t * (CS.max[1] - CS.min[1]), CS.min[2] + t * (CS.max[2] - CS.min[2]));
+        }
         pA[0] = pB[0]; pA[1] = pB[1]; pA[2] = pB[2];
       }
     }
@@ -397,6 +468,11 @@ function update() {
       const t = X.clone().add(u).addScaledVector(er, 0.5 * (D.jaw_edge_r + P.r_apex) - P.r_apex);
       if (visible[k]) setBasis(jawsM, bI, t, er, et, ez, P.r_apex - D.jaw_edge_r, 0.4, P.jaw_length); else setBasis(jawsM, bI, t, er, et, ez, 0, 0, 0);
       setCol(jawsM, bI, new THREE.Color(T.rigid));
+      const sR = P.s_root ?? P.s0, rootR = sR * Math.cos(phh), rootT = sR * Math.sin(phh);
+      const ta = X.clone().add(u).addScaledVector(er, rootR / 2);
+      if (visible[k] && showFlex) setBasis(adapterM, bI, ta, er, et, ez, rootR, 2 * rootT + P.w, 2 * zcTop + span);
+      else setBasis(adapterM, bI, ta, er, et, ez, 0, 0, 0);
+      setCol(adapterM, bI, new THREE.Color(T.ground));
     } else {
       const ii = bI - nJ, chord = 2 * (0.5 * (sOut + sG0)) * Math.sin(phh) + P.w, t = X.clone().add(u);
       if (visible[k] && showFlex) setBasis(inputsM, ii, t, er, et, ez, P.d_input, chord, span); else setBasis(inputsM, ii, t, er, et, ez, 0, 0, 0);
@@ -404,6 +480,7 @@ function update() {
     }
   }
   jawsM.instanceMatrix.needsUpdate = jawsM.instanceColor.needsUpdate = true;
+  adapterM.instanceMatrix.needsUpdate = adapterM.instanceColor.needsUpdate = true;
   inputsM.instanceMatrix.needsUpdate = inputsM.instanceColor.needsUpdate = true;
   // wire (coloured by wall contact inside the tube, striped elsewhere)
   const wp = [];
@@ -419,7 +496,7 @@ function update() {
     vT.addVectors(wp[n], wp[n + 1]).multiplyScalar(0.5);
     setBasis(wireSegs, n, vT, vB, vA, vC, rw, len, rw);
     const c = Math.max(tl[n], tl[n + 1]);
-    if (c > 1e-3 * tmax) setCol(wireSegs, n, rampColor(seq, 0.2 + 0.8 * c / tmax));
+    if (showLoad && c > 1e-3 * tmax) setCol(wireSegs, n, rampColor(seq, 0.2 + 0.8 * c / tmax));
     else setCol(wireSegs, n, new THREE.Color(T.wire).multiplyScalar(Math.floor((wireRef[n * 3 + 2] + 1000) / 2.5) % 2 ? 0.72 : 1.0));
   }
   wireSegs.instanceMatrix.needsUpdate = wireSegs.instanceColor.needsUpdate = true;
@@ -433,6 +510,7 @@ function update() {
     }
   }
   contactM.instanceMatrix.needsUpdate = contactM.instanceColor.needsUpdate = true;
+  contactM.visible = showLoad;
   updatePanel();
 }
 
@@ -650,6 +728,12 @@ function setView(v) {
   update();
 }
 document.querySelectorAll(".vbtn[data-view]").forEach(b => b.addEventListener("click", () => setView(b.dataset.view)));
+$("cfield").addEventListener("change", (e) => setField(e.target.value));
+["cmin", "cmax"].forEach(id => $(id).addEventListener("input", () => { CS.custom = true; paintRamps(); update(); }));
+$("crange").addEventListener("change", (e) => { const v = +e.target.value; if (v > 0) { CS.scale = v; paintRamps(); update(); } });
+$("cauto").addEventListener("click", () => setField(CS.field));
+$("showload").addEventListener("change", (e) => { showLoad = e.target.checked; $("lg-load").hidden = !showLoad; update(); });
+$("crange").value = CS.scale;
 function resize() { const w = canvas.clientWidth, h = canvas.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
 const retheme = () => { readTokens(); paintRamps(); scene.background = new THREE.Color(T.bg); if (tubeMesh) tubeMesh.material.color.set(T.tube); update(); };
 window.addEventListener("resize", () => { resize(); updatePanel(); });

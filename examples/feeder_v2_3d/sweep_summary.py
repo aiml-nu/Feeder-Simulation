@@ -1,8 +1,9 @@
 """
 Summarize the jaw-gap and mount-stiffness sweeps (full feeder runs).
 
-    python examples/feeder_v2_3d/sweep_summary.py
-expects results/{rigid,gap0.1,gap0.2,mount1e4,mount3e3}.npz (and optionally tube325.npz)
+    python examples/feeder_v2_3d/sweep_summary.py [results_dir]
+expects <results_dir>/{gap0,gap0.05,gap0.1,gap0.15,gap0.2,mount10000,mount3000}.npz
+(default results_dir: examples/feeder_v2_3d/results/cad); missing runs are skipped.
 """
 import json, pathlib, sys
 
@@ -16,7 +17,7 @@ import matplotlib.pyplot as plt
 from flexsim3d import plots
 from flexsim3d.plots import INK, INK2, MUTED
 
-R = ROOT / "examples/feeder_v2_3d/results"
+R = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "examples/feeder_v2_3d/results/cad"
 MEASURED = 65.0          # N, paper (force measured at the nozzle)
 
 
@@ -37,11 +38,11 @@ def steady(name, window=180.0):
 
 
 runs = {}
-for n in ["rigid", "gap0.05", "gap0.1", "gap0.15", "gap0.2", "mount1e4", "mount3e3", "tube325"]:
+for n in ["gap0", "gap0.05", "gap0.1", "gap0.15", "gap0.2", "mount10000", "mount3000", "tube325_gap0", "tube325_gap0.1"]:
     if (R / f"{n}.npz").exists():
         runs[n] = steady(n)
         r = runs[n]
-        print(f"{n:9s} nozzle {r['lo']:5.1f} / {r['mean']:5.1f} / {r['hi']:5.1f} N   clamp/jaw {r['clamp']:5.0f} N   "
+        print(f"{n:15s} nozzle {r['lo']:5.1f} / {r['mean']:5.1f} / {r['hi']:5.1f} N   clamp/jaw {r['clamp']:5.0f} N   "
               f"slip share {100 * r['slip']:4.1f}%   max P/Pcr {r['util']:.2f}")
 
 fig, axs = plt.subplots(1, 2, figsize=(11.5, 4.4), sharey=True)
@@ -59,14 +60,15 @@ def panel(ax, names, labels, title, xlabel):
         ax.plot([x - 0.08, x + 0.08], [r["hi"]] * 2, color=INK, lw=1.6)
         ax.text(x, r["hi"] + 3, f"{r['mean']:.0f} N\nclamp {r['clamp']:.0f}", ha="center", va="bottom", fontsize=9, color=INK2)
     ax.axhline(MEASURED, color="#eb6834", lw=1.6, ls="--")
-    ax.text(-0.45, MEASURED + 2, "measured 65 N", color="#eb6834", ha="left", fontsize=9)
+    ax.text(-0.45, MEASURED + 2, "measured 65 N", color="#eb6834", ha="left", fontsize=9, zorder=5,
+            bbox=dict(boxstyle="square,pad=0.15", fc="white", ec="none"))
     ax.set_xticks(xs, labels)
     ax.grid(axis="x", visible=False)
     ax.set(title=title, xlabel=xlabel)
 
 
 ax = axs[0]
-gaps = [(0.0, "rigid"), (0.05, "gap0.05"), (0.1, "gap0.1"), (0.15, "gap0.15"), (0.2, "gap0.2")]
+gaps = [(0.0, "gap0"), (0.05, "gap0.05"), (0.1, "gap0.1"), (0.15, "gap0.15"), (0.2, "gap0.2")]
 gaps = [(g, n) for g, n in gaps if n in runs]
 gx = np.array([g for g, _ in gaps])
 mean = np.array([runs[n]["mean"] for _, n in gaps])
@@ -79,7 +81,7 @@ ax.axhline(MEASURED, color="#eb6834", lw=1.6, ls="--")
 ax.text(gx.max(), MEASURED + 2, "measured 65 N", color="#eb6834", ha="right", fontsize=9)
 ax.set(title="Jaw-to-wire gap", xlabel="Radial gap at assembly [mm] (CAD = 0)")
 ax.set_xticks(gx)
-panel(axs[1], ["rigid", "mount1e4", "mount3e3"], ["rigid", "10,000 N/mm", "3,000 N/mm"],
+panel(axs[1], ["gap0", "mount10000", "mount3000"], ["rigid", "10,000 N/mm", "3,000 N/mm"],
       "Printed mount stiffness", "Stiffness per stack-end block")
 axs[0].set_ylabel("Steady feed force at nozzle [N]\n(mean; band / whiskers: min-max)")
 ymax = max([r["hi"] for r in runs.values()] + [MEASURED]) * 1.3

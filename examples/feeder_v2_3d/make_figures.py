@@ -41,6 +41,11 @@ sel = np.arange(len(qpsi)) if a.viewer_revs <= 0 else np.nonzero(qpsi >= qpsi.ma
 data = export(npz, out / "viewer_data.json", frames=sel, max_frames=a.viewer_frames)
 tpl = (ROOT / "src/flexsim3d/viewer_template.html").read_text()
 html = tpl.replace("/*__DATA__*/", (out / "viewer_data.json").read_text())
+prm = json.loads(str(np.load(npz)["params"])) if "params" in np.load(npz).files else {}
+tag = [f"gap {prm['clearance']:g} mm"] if prm.get("clearance") else []
+tag += [f"mounts {prm['k_mount']:g} N/mm"] if prm.get("k_mount") else []
+if tag:
+    html = html.replace("<title>Dauber Feeder Viewer</title>", f"<title>Feeder Viewer, {', '.join(tag)}</title>")
 # standalone file for local use (the published artifact gets its own document skeleton)
 (out / "feeder_viewer.html").write_text(
     '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'

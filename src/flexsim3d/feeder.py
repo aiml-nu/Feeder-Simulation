@@ -24,7 +24,7 @@ length along the arm.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, fields
 
 import numpy as np
 
@@ -45,7 +45,7 @@ class FeederParams:
     L2: float = 24.0                # angled leaf length
     theta_deg: float = 15.0         # angled-leaf inclination
     N_leaves: int = 15              # leaves per stack
-    pitch: float = 1.5              # leaf spacing in a stack [assumed]
+    pitch: float = 1.27             # vertical leaf spacing in a stack (CAD)
     n_el_leaf: int = 8              # beam elements per leaf (converged; 4 is ~15% stiff post-buckling)
     imperfection: float = 0.05      # leaf initial bow amplitude, mm; ~FDM print tolerance. Needed: see README
     imp_sign: str = "same"          # "same" (every leaf bowed the same way) or "random" (seeded signs)
@@ -54,10 +54,12 @@ class FeederParams:
     n_modules: int = 6
     V_angle_deg: float = 60.0       # included angle between the two arms of a module
     r_apex: float = 4.5             # radius of the V apex on the jaw radial line [assumed]
-    s0: float = 2.0                 # apex -> first leaf attachment along arm [assumed]
-    d_input: float = 4.0            # input body length along arm [assumed]
+    s0: float = 2.0                 # apex -> jaw-side leaf root along arm (used only if root_to_jaw_face <= 0)
+    root_to_jaw_face: float = 19.14 # plan distance, jaw-side root of the angled leaves -> centre of the jaw face (CAD)
+    d_input: float = 9.6            # input body length along the arm, straight-leaf end -> angled-leaf start (CAD)
+    stack_gap: float = 4.18         # vertical gap between the innermost top and bottom angled leaves at the jaw, centred (CAD)
     jaw_length: float = 45.0
-    level_gap: float = 0.0          # extra z gap between top and bottom stacks at the jaw
+    level_gap: float = 0.0          # extra z gap added to stack_gap (kept for old parameter files)
     # compliant printed mounts: every stack end roots into a block joined to its body
     # (jaw adapter, input body, housing) by a 6-DOF bushing. 0 = rigid (no blocks).
     k_mount: float = 0.0            # N/mm, translational stiffness per stack-end block
@@ -102,8 +104,31 @@ class FeederParams:
     def phi_half(self):
         return np.deg2rad(self.V_angle_deg / 2.0)
 
+    @property
+    def s_root(self):
+        """Distance along each V arm from the apex to the jaw-side leaf roots.
+        From the CAD plan distance D between those roots and the centre of the
+        jaw face (at the wire surface): |apex + s*d - r_face*e_r| = D."""
+        if self.root_to_jaw_face <= 0:
+            return self.s0
+        a = self.r_apex - self.d_wire / 2
+        c = np.cos(self.phi_half)
+        return -a * c + np.sqrt(a * a * c * c - a * a + self.root_to_jaw_face**2)
+
+    @property
+    def zc_top(self):
+        """Height of the top stack's centre at the jaw (bottom stack mirrored)."""
+        return self.stack_gap / 2 + self.level_gap / 2 + (self.N_leaves - 1) / 2 * self.pitch
+
+    @classmethod
+    def from_dict(cls, d):
+        names = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in d.items() if k in names})
+
     def to_dict(self):
-        return asdict(self)
+        d = asdict(self)
+        d.update(s_root=float(self.s_root), zc_top=float(self.zc_top))   # derived, for the viewer
+        return d
 
 
 def hertz_line_stiffness(q, R, E1, nu1, E2, nu2):
@@ -175,7 +200,7 @@ class Feeder:
         zhalf = p.jaw_length / 2.0
         span = (p.N_leaves - 1) * p.pitch
         # z of leaf i at the jaw, per level (top stack centred in the upper half)
-        zc_top = zhalf / 2.0 + p.level_gap / 2.0
+        zc_top = p.zc_top
         z_jaw = {+1: zc_top + (np.arange(p.N_leaves) - (p.N_leaves - 1) / 2) * p.pitch,
                  -1: -zc_top - (np.arange(p.N_leaves) - (p.N_leaves - 1) / 2) * p.pitch}
         self.modules = []
@@ -196,8 +221,8 @@ class Feeder:
                 d = np.cos(ph) * er + np.sin(ph) * et       # arm direction in plan
                 arms.append(d)
             for lev in (+1, -1):              # +1 top, -1 bottom
-                s_in = p.s0
-                s_out = p.s0 + p.L2 * np.cos(th)
+                s_in = p.s_root
+                s_out = s_in + p.L2 * np.cos(th)
                 s_g0 = s_out + p.d_input
                 s_g1 = s_g0 + p.L1
                 dz_ang = lev * p.L2 * np.sin(th)
