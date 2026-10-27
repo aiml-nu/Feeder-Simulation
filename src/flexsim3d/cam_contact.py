@@ -9,8 +9,8 @@ Stack (one per stackup, bottom to top):
     middle-lower cam (face down) + middle-upper cam (face up) |
     upper follower: brg down, brg up | upper cam (face down) [outer brg]
 
-Assumed mapping: bottom input body -> lower follower, top input body -> upper
-follower. An upward force on a follower (+) is carried by its down-facing
+Mapping (confirmed): bottom input body -> lower follower, between the bottom cam
+and the middle-lower cam; top input body -> upper follower. An upward force on a follower (+) is carried by its down-facing
 bearing on the face-up cam below; a downward force (-) by its up-facing bearing
 on the face-down cam above. With no stack preload only one of the two touches.
 
@@ -47,16 +47,17 @@ SURFACES = [  # (name, follower level: +1 upper / -1 lower, force sign that load
 
 @dataclass
 class CamStack:
-    D_bearing: float = 10.0      # follower bearing outer diameter [mm]  (placeholder)
-    b_contact: float = 4.0       # contact length: bearing width, or cam track width if narrower [mm] (placeholder)
+    D_bearing: float = 13.0      # follower bearing outer diameter [mm] (3 mm ID, 13 x 5 mm)
+    b_contact: float = 5.0       # contact length: bearing width, or cam track width if narrower [mm]
     n_bearings: int = 1          # follower bearings sharing one cam surface, per stackup
     n_stackups: int = 2          # stackups per jaw group (pair of jaws)
     E_cam: float = 1000.0        # printed cam modulus normal to the face [MPa]
     nu_cam: float = 0.35
     E_bearing: float = 200e3     # steel [MPa]
     nu_bearing: float = 0.30
-    cam_radius: float = 0.0      # mean radius of the bearing track on the face cam [mm]; > 0 adds ramp slope
-    preload: float = 0.0         # stack clamp preload: contact force on each follower bearing at zero cam load [N]
+    cam_radius: float = 0.0      # mean bearing-track radius on the face cam [mm] (85 in V2); > 0 adds the ramp slope.
+                                 # Off by default: the sim prescribes z only, so the slope's side force is not modelled.
+    preload: float = 0.0         # extra stack preload [N] beyond the assembly displacement (already in the sim)
 
     @classmethod
     def from_dict(cls, d):

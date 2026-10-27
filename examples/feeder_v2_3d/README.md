@@ -183,28 +183,41 @@ other five DOFs balance to within 0.001 N, which checks the recomputation.
 Stack per stackup, bottom to top: outer bearing | bottom cam (face up) |
 lower follower (one bearing down, one up) | middle-lower cam (face down) +
 middle-upper cam (face up) | upper follower | upper cam (face down) | outer
-bearing. Assumed: bottom input bodies ride on the lower follower, top input
-bodies on the upper follower. Follower force per stackup = (sum over the two
-jaws of the group) / `n_stackups`; that force then sets the stress through
-Hertz, so the stress scales with √(force/N), not force/N.
+bearing. The bottom input bodies ride on the lower follower (between the bottom
+and middle-lower cams), the top input bodies on the upper follower. Follower
+force per stackup = (sum over the two jaws of the group) / `n_stackups`. That
+force sets the stress through Hertz, so stress scales with √(force/N), not
+force/N.
 
 ```bash
-python examples/feeder_v2_3d/cam_loads.py results/cad/tube325_gap0.npz results/cad/tube325_gap0.1.npz \
-    --set D_bearing=10 b_contact=4 n_bearings=1 n_stackups=2 E_cam=1000 cam_radius=0 preload=0
+python examples/feeder_v2_3d/cam_loads.py results/cad/tube325_gap0.npz results/cad/tube325_gap0.1.npz
 ```
 
-`CamStack` fields (`src/flexsim3d/cam_contact.py`): bearing OD and contact
-length, bearings per surface, stackups per jaw group, cam and bearing E/ν,
-the mean track radius on the face cam (> 0 adds the ramp slope:
-F_n = F_z / cos α) and a stack preload.
+`CamStack` defaults (`src/flexsim3d/cam_contact.py`; override with
+`--set name=value`): 3 mm ID bearings, Ø13 × 5 mm; 1 bearing per cam face
+per stackup; 2 stackups per jaw group; cam E = 1 GPa (same HT-PLA-GF as the
+flexures). The stack preload is the assembly displacement, which is already the
+ramp at the start of every run, so `preload` = 0.
 
-Per jaw group the top inputs need up to 50 N down (gap 0) or 36 N (0.1 mm gap)
-while clamping; the bottom inputs need 41 N / 22 N up. With **placeholder
-bearings (Ø10 × 4 mm, 1 per surface, 2 stackups, E_cam = 1 GPa)**, the upper
-(face-down) cam peaks at p_max ≈ 30 MPa (gap 0) / 26 MPa (0.1 mm), with
-contact half-width ≈ 0.25 mm. The shear on planes parallel to the face
-(the print layers, if printed face-up) peaks at 0.25 p_max ≈ 6–7.5 MPa about
-0.12 mm deep, i.e. at the first layer interface or two.
+Results (steady state):
+
+| | Gap 0 | Gap 0.1 mm |
+|---|---|---|
+| Upper follower, max down force per stackup → upper cam (face down) | 50 N | 36 N |
+| Lower follower, max up force per stackup → bottom cam (face up) | 41 N | 22 N |
+| Middle cams (reset / handover only) | 7 N | 7 N |
+| Peak contact pressure p_max, upper / bottom cam | 23.6 / 21.3 MPa | 20.1 / 15.7 MPa |
+| Interlayer shear 0.25 p_max (planes parallel to the face), upper cam | 5.9 MPa at 135 µm | 5.0 MPa at 115 µm |
+| Contact half-width a, upper cam | 0.27 mm | 0.23 mm |
+
+- The face-down **upper cam is the most loaded surface** in both cases. The
+  middle cams only see the ~7 N left over from the assembly displacement.
+- The worst interlayer shear sits about 0.1–0.14 mm below the surface: the
+  first one or two layer interfaces.
+- **Ramp slope is left out** (`cam_radius` = 0). On the 85 mm track the steepest
+  ramp is 1.6°, so the normal force rises by only 0.04%. The side force it adds
+  (≈ 2.8% of the vertical load) is not modelled, because the sim prescribes z
+  only; quantifying it needs the cams in the model.
 
 ## Numerical notes
 

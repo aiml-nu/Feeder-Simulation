@@ -2,7 +2,7 @@
 Cam follower forces and Hertz contact stress on the printed face cams.
 
     python examples/feeder_v2_3d/cam_loads.py results/cad/tube325_gap0.npz results/cad/tube325_gap0.1.npz \
-        --set D_bearing=10 b_contact=4 n_bearings=1 n_stackups=2 E_cam=1000
+        --set D_bearing=13 b_contact=5 n_bearings=1 n_stackups=2 E_cam=1000
 
 Writes cam_force.png, cam_stress.png and cam_loads.json next to the first .npz
 (or --outdir). Steady state = the last 360 deg of cam rotation, jaw group 1.

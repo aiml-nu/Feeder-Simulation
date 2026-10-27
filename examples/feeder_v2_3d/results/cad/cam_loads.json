@@ -1,7 +1,7 @@
 {
  "cam_stack": {
-  "D_bearing": 10.0,
-  "b_contact": 4.0,
+  "D_bearing": 13.0,
+  "b_contact": 5.0,
   "n_bearings": 1,
   "n_stackups": 2,
   "E_cam": 1000.0,
@@ -28,31 +28,31 @@
    "surfaces": {
     "Bottom cam (face up)": {
      "F_bearing_max": 41.028710091742184,
-     "p_max": 27.20867513673847,
-     "tau_xz_max": 6.802168784184618,
-     "depth_tau_xz_um": 119.99705952180086,
-     "half_width_um": 239.99411904360173
+     "p_max": 21.3442408401902,
+     "tau_xz_max": 5.33606021004755,
+     "depth_tau_xz_um": 122.37346961508348,
+     "half_width_um": 244.74693923016696
     },
     "Middle-lower cam (face down)": {
      "F_bearing_max": 7.079336983079414,
-     "p_max": 11.3021158984563,
-     "tau_xz_max": 2.825528974614075,
-     "depth_tau_xz_um": 49.8451566411669,
-     "half_width_um": 99.6903132823338
+     "p_max": 8.866109155556297,
+     "tau_xz_max": 2.216527288889074,
+     "depth_tau_xz_um": 50.832285274279805,
+     "half_width_um": 101.66457054855961
     },
     "Middle-upper cam (face up)": {
      "F_bearing_max": 7.07941617081557,
-     "p_max": 11.302179109634913,
-     "tau_xz_max": 2.8255447774087283,
-     "depth_tau_xz_um": 49.84543541826738,
-     "half_width_um": 99.69087083653476
+     "p_max": 8.866158742484485,
+     "tau_xz_max": 2.2165396856211212,
+     "depth_tau_xz_um": 50.83256957225486,
+     "half_width_um": 101.66513914450972
     },
     "Upper cam (face down)": {
      "F_bearing_max": 50.06175184909878,
-     "p_max": 30.05498290194867,
-     "tau_xz_max": 7.513745725487167,
-     "depth_tau_xz_um": 132.54998834331914,
-     "half_width_um": 265.0999766866383
+     "p_max": 23.577068353497502,
+     "tau_xz_max": 5.8942670883743755,
+     "depth_tau_xz_um": 135.1749954178161,
+     "half_width_um": 270.3499908356322
     }
    }
   },
@@ -71,31 +71,31 @@
    "surfaces": {
     "Bottom cam (face up)": {
      "F_bearing_max": 22.297863822013635,
-     "p_max": 20.05834482635301,
-     "tau_xz_max": 5.014586206588253,
-     "depth_tau_xz_um": 88.46231527042337,
-     "half_width_um": 176.92463054084675
+     "p_max": 15.735060258453368,
+     "tau_xz_max": 3.933765064613342,
+     "depth_tau_xz_um": 90.21421435629718,
+     "half_width_um": 180.42842871259435
     },
     "Middle-lower cam (face down)": {
      "F_bearing_max": 7.079336922099767,
-     "p_max": 11.302115849779494,
-     "tau_xz_max": 2.8255289624448734,
-     "depth_tau_xz_um": 49.845156426490014,
-     "half_width_um": 99.69031285298003
+     "p_max": 8.866109117371066,
+     "tau_xz_max": 2.2165272793427664,
+     "depth_tau_xz_um": 50.83228505535148,
+     "half_width_um": 101.66457011070295
     },
     "Middle-upper cam (face up)": {
      "F_bearing_max": 7.079416170816092,
-     "p_max": 11.30217910963533,
-     "tau_xz_max": 2.8255447774088327,
-     "depth_tau_xz_um": 49.84543541826922,
-     "half_width_um": 99.69087083653844
+     "p_max": 8.866158742484812,
+     "tau_xz_max": 2.216539685621203,
+     "depth_tau_xz_um": 50.83256957225674,
+     "half_width_um": 101.66513914451347
     },
     "Upper cam (face down)": {
      "F_bearing_max": 36.293016483456796,
-     "p_max": 25.590277574469408,
-     "tau_xz_max": 6.397569393617352,
-     "depth_tau_xz_um": 112.85952167280372,
-     "half_width_um": 225.71904334560745
+     "p_max": 20.07466534007313,
+     "tau_xz_max": 5.018666335018282,
+     "depth_tau_xz_um": 115.0945806608748,
+     "half_width_um": 230.1891613217496
     }
    }
   }
