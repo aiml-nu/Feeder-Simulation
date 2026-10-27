@@ -365,6 +365,16 @@ class Feeder:
         Pe = 4 * np.pi**2 * EI_thin / L**2
         self.leaf_Pcr = Pe / (1 + Pe / (s.kappa * s.G * s.A))
 
+    def input_forces(self, q, full=False):
+        """Vertical force the cam must apply to each input body [N, + up],
+        (n_modules, 2) as [top, bottom]: the reaction at the prescribed z DOF.
+        Only leaves (and mount bushings) act on input bodies, so friction state
+        is not needed. full=True also returns the whole internal-force vector."""
+        terms = [self.mounts] if self.mounts is not None else []
+        r = self.m.internal_force(np.asarray(q, float), terms)
+        f = np.array([[r[6 * mod["inputs"][+1] + 2], r[6 * mod["inputs"][-1] + 2]] for mod in self.modules])
+        return (f, r) if full else f
+
     # ------------------------------------------------------------ driving
     def prescribed(self, psi, ramp=1.0):
         """Input-body z DOFs at cam angle psi (deg); ramp in [0,1] scales from neutral."""

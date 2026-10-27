@@ -248,6 +248,21 @@ class Model:
             K = K + sp.diags(stab, format="csr")
         return r, K
 
+    def internal_force(self, q, terms=()):
+        """Elastic internal force dU/dq from the beams, grounded springs and the
+        given history-free terms (e.g. bushings). At equilibrium this equals the
+        external force, so at a prescribed DOF it is the reaction."""
+        Qab = jnp.asarray(q[self.edofs])
+        g = _beam_grad(Qab, self.Xa, self.Xb, self.oa, self.ob, self.E0, self.prm)
+        r = np.bincount(self.edofs.ravel(), weights=np.asarray(g, dtype=float).ravel(), minlength=self.ndof)
+        for dof, k in self.springs:
+            r[dof] += k * q[dof]
+        for term in terms:
+            dm = term.dofmap
+            rt, _ = term.evaluate(jnp.asarray(q[dm]), jnp.asarray(q[dm]))
+            r += np.bincount(dm.ravel(), weights=np.asarray(rt).ravel(), minlength=self.ndof)
+        return r
+
     def commit(self, q, q_prev):
         """Call after every converged increment that becomes the next start
         state: history-dependent terms (friction) store their state."""

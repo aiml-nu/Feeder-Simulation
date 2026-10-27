@@ -45,6 +45,7 @@ class Recorder:
             s_on_jaw=info["s"].reshape(nj, nw),
             jaw_q=np.array([Q[mod["jaw"]] for mod in F.modules]),
             inp_q=np.array([[Q[mod["inputs"][+1]], Q[mod["inputs"][-1]]] for mod in F.modules]),
+            inp_fz=F.input_forces(q),                          # N, cam force on [top, bottom] input, + up
             leaf_N=leaf_N, leaf_util=np.maximum(-leaf_N, 0) / F.leaf_Pcr,
             leaf_sig=sc["axial"] + sc["thin"] + sc["wide"],
             leaf_sig_axial=sc["axial"], leaf_sig_thin=sc["thin"], leaf_sig_wide=sc["wide"],
