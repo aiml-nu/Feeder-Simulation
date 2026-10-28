@@ -146,6 +146,11 @@ error; they are kept in `results/cad/` for reference only. Current results:
 
 With the 325 mm tube at 0.15 mm (`tube325_gap0.15`): **63 / 66 / 74 N against
 the measured 65 N**, clamp 155 N per jaw, tube friction loss 0.3 N (0.5%).
+With the tube at zero gap (`tube325_gap0`, 3 revs) the force is still rising
+(mean 237 → 255 N over the last two half revolutions; the buckled wire adds
+compliance, so it builds more slowly). Clamp is 1002 N per jaw and the tube loss
+2.7%, so it should settle a little below the no-tube 284 N; it needs about 6
+revolutions to confirm.
 
 - **A jaw gap of about 0.15 mm explains the measurement.** The design
   interference is δc/2 = 0.2 mm and the free jaw stroke runs out between 0.15
