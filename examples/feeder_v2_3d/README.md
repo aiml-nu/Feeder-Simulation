@@ -100,7 +100,7 @@ Studies:
 | Jaws, input bodies | rigid bodies (6 DOF); leaves attach at offsets, no constraint equations |
 | Printed mounts (optional) | `k_mount` > 0: every stack end roots in a block joined to its body by a 6-DOF bushing (96 blocks) |
 | Jaw gap | `clearance`: radial gap between each jaw edge and the wire at the as-printed neutral (CAD = 0) |
-| Cams | input-body z prescribed at the cam-bearing point; other 5 DOF free (no side load from cam slope) |
+| Cams | input-body z prescribed at the cam-bearing point; other 5 DOF free (no side load from cam slope). Optional: `k_cam` > 0 puts a z spring (the cam stack's compliance) between the cam profile and each input body; `input_scale` scales all input motions |
 | Wire | 0.9 mm Al beam: 0.5 mm elements through the jaws, 1 mm in the tube; 40 µm bow + helix imperfection in the tube (spool cast) |
 | Wire BCs | top: lateral guide; nozzle: lateral + twist + axial spring `k_feed` |
 | Jaw-wire contact | each wire node vs. each jaw edge line, penalty `k_line` (Hertz line contact ≈ 1e4 N/mm²), C1-smoothed |
@@ -163,6 +163,23 @@ revolutions to confirm.
   force drops 15% and the feed force barely moves; even at 10,000 N/mm (3–7×
   softer than estimated) the feed force is still above 200 N. Feed force at zero gap is
   limited by stroke and handover slip, not friction capacity.
+- **Cam-stack compliance acts like extra gap.** With `k_cam` (a spring per
+  input body between the cam profile and the body: Hertz contacts, follower
+  bearings and pin, printed cams, frame), at 0.15 mm gap, no tube:
+
+  | Cam stack stiffness per input | Feed force (min / mean / max) | Clamp per jaw | Max input stroke lost |
+  |---|---|---|---|
+  | rigid | 62 / 72 / 92 N | 155 N | 0 |
+  | 3,000 N/mm | 55 / 65 / 85 N | 139 N | 15 µm |
+  | 1,000 N/mm | 44 / 54 / 73 N | 111 N | 38 µm |
+
+  The lost input stroke δ shows up at the jaw as about 0.31 δ of lost radial
+  interference (tan θ / cos φ with θ = 15°, φ = 30°), the same as that much more
+  gap. Unlike a uniform cut in the input motions (`input_scale`), the loss is
+  proportional to the cam force, so it bites only while clamping. One measured
+  feed force cannot separate gap from stack compliance: 65 N fits 0.15 mm with
+  a rigid stack or roughly 0.14 mm with ~3,000 N/mm. Measuring the jaw gap on
+  the assembled feeder (feeler or pin gauge) would separate them.
 - **The gap protects the leaves.** At 0.15 mm the worst leaf sits at 0.25 P_cr
   and peak thin-direction bending is 13 MPa; at zero gap the top stacks are at
   0.97 P_cr (buckling-limited) with 42 MPa. Compare these with the material's

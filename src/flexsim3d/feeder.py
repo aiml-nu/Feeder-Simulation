@@ -88,6 +88,11 @@ class FeederParams:
     k_line: float = 1.0e4           # N/mm per mm contact length (Hertz-based)
     mu: float = 0.2
     clearance: float = 0.0          # radial jaw-edge clearance at neutral
+    # cam drive: 0 = rigid (input z prescribed). > 0: each input body hangs on a z spring
+    # of this stiffness [N/mm] whose anchor follows the cam profile, i.e. the cam stack
+    # (Hertz contacts, bearings, follower pin, printed cams, frame) in series
+    k_cam: float = 0.0
+    input_scale: float = 1.0        # scales the cam input motions (1 = full stroke)
     # cam (paper A.4 values)
     delta_c: float = 0.4            # jaw clamp stroke (radial)
     delta_f: float = 0.8            # jaw feed stroke (axial)
@@ -263,6 +268,12 @@ class Feeder:
                                t0=np.array([0, 0, 1.0]), n0=-er, L=p.jaw_length)
             self.modules.append(mod)
 
+        self.cam_dofs = []
+        if p.k_cam > 0:
+            for mod in self.modules:
+                for lev in (+1, -1):
+                    m.add_spring(mod["inputs"][lev], 2, p.k_cam)
+                    self.cam_dofs.append(6 * mod["inputs"][lev] + 2)
         self.mounts = None
         if self.mount_pairs:
             l_rot = ((p.N_leaves - 1) * p.pitch + p.t) / np.sqrt(12.0)
@@ -369,18 +380,26 @@ class Feeder:
         """Vertical force the cam must apply to each input body [N, + up],
         (n_modules, 2) as [top, bottom]: the reaction at the prescribed z DOF.
         Only leaves (and mount bushings) act on input bodies, so friction state
-        is not needed. full=True also returns the whole internal-force vector."""
+        is not needed. With k_cam > 0 this is the force in the cam-stack spring.
+        full=True also returns the whole internal-force vector."""
         terms = [self.mounts] if self.mounts is not None else []
-        r = self.m.internal_force(np.asarray(q, float), terms)
+        r = self.m.internal_force(np.asarray(q, float), terms, springs=False)
         f = np.array([[r[6 * mod["inputs"][+1] + 2], r[6 * mod["inputs"][-1] + 2]] for mod in self.modules])
         return (f, r) if full else f
 
     # ------------------------------------------------------------ driving
     def prescribed(self, psi, ramp=1.0):
-        """Input-body z DOFs at cam angle psi (deg); ramp in [0,1] scales from neutral."""
+        """Input-body z DOFs at cam angle psi (deg); ramp in [0,1] scales from neutral.
+        With k_cam > 0 the cam positions become the anchors of the cam-stack springs
+        (set on the model) and no input DOF is prescribed."""
         pres = {}
+        sc = ramp * self.p.input_scale
         for mod in self.modules:
             ut, ub = input_targets(psi - mod["phase"], self.p)
-            pres[6 * mod["inputs"][+1] + 2] = ramp * ut
-            pres[6 * mod["inputs"][-1] + 2] = ramp * ub
+            for lev, u in ((+1, ut), (-1, ub)):
+                dof = 6 * mod["inputs"][lev] + 2
+                if self.p.k_cam > 0:
+                    self.m.spring_target[dof] = sc * u
+                else:
+                    pres[dof] = sc * u
         return pres
