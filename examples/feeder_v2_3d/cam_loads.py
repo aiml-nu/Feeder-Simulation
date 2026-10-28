@@ -134,5 +134,5 @@ for c in cases:
                                    tau_xz_max=float(s["tau_xz"][j]), depth_tau_xz_um=float(1000 * s["z_tau_xz"][j]),
                                    half_width_um=float(1000 * s["a"][j]))
     summary["cases"].append(e)
-json.dump(summary, open(out / "cam_loads.json", "w"), indent=1)
+json.dump(summary, open(out / "cam_loads.json", "w", encoding="utf-8"), indent=1)
 print("\nwrote", out / "cam_force.png", out / "cam_stress.png")

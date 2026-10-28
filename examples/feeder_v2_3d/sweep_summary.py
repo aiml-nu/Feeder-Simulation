@@ -105,5 +105,5 @@ ymax = max([r["hi"] for r in runs.values()] + [MEASURED]) * 1.3
 axs[0].set_ylim(0, ymax)
 fig.savefig(R / "sweep_summary.png")
 json.dump({k: {kk: float(vv) if not isinstance(vv, str) else vv for kk, vv in v.items()} for k, v in runs.items()},
-          open(R / "sweep_summary.json", "w"), indent=1)
+          open(R / "sweep_summary.json", "w", encoding="utf-8"), indent=1)
 print("saved", R / "sweep_summary.png")

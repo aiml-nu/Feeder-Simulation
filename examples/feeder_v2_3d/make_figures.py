@@ -39,8 +39,11 @@ plots.fig_tube(d, out / "tube_force.png")
 qpsi = d["q_psi"]
 sel = np.arange(len(qpsi)) if a.viewer_revs <= 0 else np.nonzero(qpsi >= qpsi.max() - 360.0 * a.viewer_revs)[0]
 data = export(npz, out / "viewer_data.json", frames=sel, max_frames=a.viewer_frames)
-tpl = (ROOT / "src/flexsim3d/viewer_template.html").read_text()
-html = tpl.replace("/*__DATA__*/", (out / "viewer_data.json").read_text())
+# explicit UTF-8: Windows' default (cp1252) would turn "×" into "Ã—" when the template is read
+tpl = (ROOT / "src/flexsim3d/viewer_template.html").read_text(encoding="utf-8")
+html = tpl.replace("/*__DATA__*/", (out / "viewer_data.json").read_text(encoding="utf-8"))
+if any(m in html for m in ("Ã", "Â°", "â€")):
+    raise SystemExit("viewer text looks double-encoded (UTF-8 read as cp1252); not writing it")
 prm = json.loads(str(np.load(npz)["params"])) if "params" in np.load(npz).files else {}
 tag = [f"gap {prm['clearance']:g} mm"] if prm.get("clearance") else []
 tag += [f"mounts {prm['k_mount']:g} N/mm"] if prm.get("k_mount") else []

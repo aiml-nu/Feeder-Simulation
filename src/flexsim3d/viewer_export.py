@@ -174,6 +174,6 @@ def export(npz, out_json, frames=None, max_frames=240):
         hist_push=[float(x) for x in d["jaw_push"][d["ramp"] >= 1]] if "jaw_push" in d else [],
         blobs=pk.meta, bin=pk.blob(),
     )
-    with open(out_json, "w") as fh:
+    with open(out_json, "w", encoding="utf-8") as fh:
         json.dump(data, fh)
     return data
