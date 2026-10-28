@@ -19,6 +19,7 @@ from flexsim3d.plots import INK, INK2, MUTED
 
 R = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "examples/feeder_v2_3d/results/cad"
 MEASURED = 65.0          # N, paper (force measured at the nozzle)
+NO_CONTACT = 0.175       # mm: from this gap on the jaw stroke never reaches the wire (E-independent; seen in runs)
 
 
 def steady(name, window=180.0):
@@ -38,7 +39,17 @@ def steady(name, window=180.0):
 
 
 runs = {}
-for n in ["gap0", "gap0.05", "gap0.1", "gap0.15", "gap0.2", "mount10000", "mount3000", "tube325_gap0", "tube325_gap0.1"]:
+def _num(stem, pre):
+    try:
+        return float(stem[len(pre):])
+    except ValueError:
+        return None
+
+
+names = sorted([f.stem for f in R.glob("gap*.npz") if _num(f.stem, "gap") is not None], key=lambda n: _num(n, "gap"))
+names += sorted([f.stem for f in R.glob("mount*.npz") if _num(f.stem, "mount") is not None], key=lambda n: -_num(n, "mount"))
+names += sorted(f.stem for f in R.glob("tube*_gap*.npz"))
+for n in names:
     if (R / f"{n}.npz").exists():
         runs[n] = steady(n)
         r = runs[n]
@@ -68,20 +79,26 @@ def panel(ax, names, labels, title, xlabel):
 
 
 ax = axs[0]
-gaps = [(0.0, "gap0"), (0.05, "gap0.05"), (0.1, "gap0.1"), (0.15, "gap0.15"), (0.2, "gap0.2")]
-gaps = [(g, n) for g, n in gaps if n in runs]
+gaps = [(_num(n, "gap"), n) for n in names if n.startswith("gap")]
 gx = np.array([g for g, _ in gaps])
 mean = np.array([runs[n]["mean"] for _, n in gaps])
 ax.fill_between(gx, [runs[n]["lo"] for _, n in gaps], [runs[n]["hi"] for _, n in gaps], color="#2a78d6", alpha=0.15, lw=0)
 ax.plot(gx, mean, color="#2a78d6", marker="o", ms=7)
-for g, n in gaps:
-    ax.annotate(f"clamp {runs[n]['clamp']:.0f} N/jaw", (g, runs[n]["hi"]), textcoords="offset points",
-                xytext=(0, 6), ha="center", fontsize=8.5, color=INK2)
+for i, (g, n) in enumerate(gaps):     # alternate sides so neighbouring labels do not collide
+    ax.annotate(f"{runs[n]['mean']:.0f} N\nclamp {runs[n]['clamp']:.0f} N/jaw", (g, runs[n]["mean"]), textcoords="offset points",
+                xytext=(8, 4) if i % 2 == 0 else (-8, -6), ha="left" if i % 2 == 0 else "right",
+                va="bottom" if i % 2 == 0 else "top", fontsize=8.5, color=INK2)
 ax.axhline(MEASURED, color="#eb6834", lw=1.6, ls="--")
-ax.text(gx.max(), MEASURED + 2, "measured 65 N", color="#eb6834", ha="right", fontsize=9)
-ax.set(title="Jaw-to-wire gap", xlabel="Radial gap at assembly [mm] (CAD = 0)")
-ax.set_xticks(gx)
-panel(axs[1], ["gap0", "mount10000", "mount3000"], ["rigid", "10,000 N/mm", "3,000 N/mm"],
+ax.text(gx.min(), MEASURED - 4, "measured 65 N", color="#eb6834", ha="left", va="top", fontsize=9)
+E = json.loads(str(np.load(R / f"{gaps[0][1]}.npz")["params"]))["E_flex"]
+ax.set(title=f"Jaw-to-wire gap (E = {E / 1000:g} GPa)", xlabel="Radial gap at assembly [mm] (CAD = 0)")
+ax.set_xticks(np.round(np.arange(0, 0.2 + 1e-9, 0.05), 3))
+ax.set_xlim(-0.012, 0.215)
+if NO_CONTACT:
+    ax.axvspan(NO_CONTACT, 0.215, color=MUTED, alpha=0.12, lw=0)
+    ax.text(NO_CONTACT + 0.004, 0.5, "jaws never\nreach the wire", fontsize=8.5, color=INK2, va="center", transform=ax.get_xaxis_transform())
+mounts = [n for n in names if n.startswith("mount")]
+panel(axs[1], ["gap0"] + mounts, ["rigid"] + [f"{_num(n, 'mount'):,.0f} N/mm" for n in mounts],
       "Printed mount stiffness", "Stiffness per stack-end block")
 axs[0].set_ylabel("Steady feed force at nozzle [N]\n(mean; band / whiskers: min-max)")
 ymax = max([r["hi"] for r in runs.values()] + [MEASURED]) * 1.3

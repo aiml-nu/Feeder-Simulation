@@ -51,7 +51,7 @@ class CamStack:
     b_contact: float = 5.0       # contact length: bearing width, or cam track width if narrower [mm]
     n_bearings: int = 1          # follower bearings sharing one cam surface, per stackup
     n_stackups: int = 2          # stackups per jaw group (pair of jaws)
-    E_cam: float = 1000.0        # printed cam modulus normal to the face [MPa]
+    E_cam: float = 3000.0        # printed cam modulus normal to the face [MPa] (HT-PLA-GF datasheet)
     nu_cam: float = 0.35
     E_bearing: float = 200e3     # steel [MPa]
     nu_bearing: float = 0.30

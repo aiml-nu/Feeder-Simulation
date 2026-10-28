@@ -1,0 +1,103 @@
+{
+ "cam_stack": {
+  "D_bearing": 13.0,
+  "b_contact": 5.0,
+  "n_bearings": 1,
+  "n_stackups": 2,
+  "E_cam": 3000.0,
+  "nu_cam": 0.35,
+  "E_bearing": 200000.0,
+  "nu_bearing": 0.3,
+  "cam_radius": 0.0,
+  "preload": 0.0
+ },
+ "E_star": 3366.4366268305002,
+ "cases": [
+  {
+   "label": "jaw gap 0 mm, no tube",
+   "follower_force_per_stackup": {
+    "upper": [
+     -149.95108322924443,
+     21.676216712061706
+    ],
+    "lower": [
+     -21.6760153623465,
+     120.99137928002752
+    ]
+   },
+   "surfaces": {
+    "Bottom cam (face up)": {
+     "F_bearing_max": 120.99137928002752,
+     "p_max": 63.160537703630325,
+     "tau_xz_max": 15.790134425907581,
+     "depth_tau_xz_um": 121.95194521161201,
+     "half_width_um": 243.90389042322403
+    },
+    "Middle-lower cam (face down)": {
+     "F_bearing_max": 21.6760153623465,
+     "p_max": 26.73365442930708,
+     "tau_xz_max": 6.68341360732677,
+     "depth_tau_xz_um": 51.618008313466845,
+     "half_width_um": 103.23601662693369
+    },
+    "Middle-upper cam (face up)": {
+     "F_bearing_max": 21.676216712061706,
+     "p_max": 26.733778594221977,
+     "tau_xz_max": 6.683444648555494,
+     "depth_tau_xz_um": 51.61824805418865,
+     "half_width_um": 103.2364961083773
+    },
+    "Upper cam (face down)": {
+     "F_bearing_max": 149.95108322924443,
+     "p_max": 70.31425967266875,
+     "tau_xz_max": 17.57856491816719,
+     "depth_tau_xz_um": 135.76453043248063,
+     "half_width_um": 271.52906086496125
+    }
+   }
+  },
+  {
+   "label": "jaw gap 0.15 mm, 325 mm tube",
+   "follower_force_per_stackup": {
+    "upper": [
+     -46.99698448036513,
+     21.676216712068477
+    ],
+    "lower": [
+     -21.67601536231827,
+     33.0812398222952
+    ]
+   },
+   "surfaces": {
+    "Bottom cam (face up)": {
+     "F_bearing_max": 33.0812398222952,
+     "p_max": 33.02626745986761,
+     "tau_xz_max": 8.256566864966903,
+     "depth_tau_xz_um": 63.76794286819888,
+     "half_width_um": 127.53588573639776
+    },
+    "Middle-lower cam (face down)": {
+     "F_bearing_max": 21.67601536231827,
+     "p_max": 26.733654429289672,
+     "tau_xz_max": 6.683413607322418,
+     "depth_tau_xz_um": 51.61800831343323,
+     "half_width_um": 103.23601662686646
+    },
+    "Middle-upper cam (face up)": {
+     "F_bearing_max": 21.676216712068477,
+     "p_max": 26.733778594226152,
+     "tau_xz_max": 6.683444648556538,
+     "depth_tau_xz_um": 51.618248054196705,
+     "half_width_um": 103.23649610839341
+    },
+    "Upper cam (face down)": {
+     "F_bearing_max": 46.99698448036513,
+     "p_max": 39.364396821891766,
+     "tau_xz_max": 9.841099205472942,
+     "depth_tau_xz_um": 76.00576149362917,
+     "half_width_um": 152.01152298725833
+    }
+   }
+  }
+ ]
+}

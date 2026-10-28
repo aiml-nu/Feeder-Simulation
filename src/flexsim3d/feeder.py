@@ -37,7 +37,7 @@ from .model import Model
 @dataclass
 class FeederParams:
     # flexure leaves (paper A.4)
-    E_flex: float = 1000.0          # MPa (HT-PLA-GF datasheet value)
+    E_flex: float = 3000.0          # MPa (HT-PLA-GF datasheet; runs before 2026-10-28 used 1000 in error)
     nu_flex: float = 0.35
     t: float = 0.8                  # leaf thickness (bending direction) mm
     w: float = 3.2                  # leaf width mm
