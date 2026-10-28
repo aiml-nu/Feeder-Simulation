@@ -49,6 +49,8 @@ h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; margin: 0; text
 .label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
 .hint { position: absolute; left: 10px; bottom: 10px; font-size: 11.5px; color: var(--muted); pointer-events: none; }
 .legend3d { position: absolute; right: 10px; bottom: 10px; background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); border-radius: 5px; padding: 7px 9px; display: grid; gap: 5px; font-size: 11.5px; color: var(--ink2); }
+.legend3d { cursor: move; touch-action: none; user-select: none; }
+.legend3d.dragging { outline: 2px solid var(--accent); }
 .ramp { width: 150px; height: 8px; border-radius: 2px; }
 .ramp-axis { display: flex; justify-content: space-between; font-family: var(--f-num); font-size: 10px; color: var(--muted); }
 .transport { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
@@ -111,7 +113,7 @@ footer { margin-top: 14px; color: var(--muted); font-size: 12px; max-width: 900p
         <span class="big num" id="o-psi">0.0°</span>
       </div>
       <div class="hint">Drag to orbit · scroll to zoom · click a leaf to inspect it</div>
-      <div class="legend3d" aria-hidden="true">
+      <div class="legend3d" id="legend" title="Drag to move · double-click to reset">
         <div id="lg-leaf">
           <div id="lg-leaf-title">Leaf compression / buckling load</div>
           <div class="ramp" id="ramp-util"></div>
@@ -137,7 +139,8 @@ footer { margin-top: 14px; color: var(--muted); font-size: 12px; max-width: 900p
         <button type="button" class="vbtn" data-view="cut">Cutaway</button>
         <button type="button" class="vbtn" data-view="all">Full</button>
         <button type="button" class="vbtn" data-view="wire">Wire + jaws</button>
-        <button type="button" class="vbtn" data-view="tube">Tube</button></div>
+        <button type="button" class="vbtn" data-view="tube">Tube</button>
+        <button type="button" class="vbtn" data-view="iso">M1 iso</button></div>
       <div class="mods" id="mods" aria-label="Show modules"></div>
     </div>
     <div class="transport" id="colorbar">
@@ -155,6 +158,12 @@ footer { margin-top: 14px; color: var(--muted); font-size: 12px; max-width: 900p
       <label class="ctl" for="crange">scale to <input type="number" id="crange" min="0" step="any" class="num" style="width:72px"> <span id="cunit"></span></label>
       <button type="button" class="vbtn" id="cauto">Run maximum</button>
       <label class="ctl" for="showload"><input type="checkbox" id="showload" checked> Contact load</label>
+    </div>
+    <div class="transport" id="exportbar">
+      <span class="ctl">Video of the last 180° with the current view, colours and legend</span>
+      <label class="ctl" for="recfps">at <select id="recfps"><option value="10">10</option><option value="15" selected>15</option><option value="20">20</option><option value="30">30</option></select> frames/s</label>
+      <button type="button" class="vbtn" id="rec">Save video</button>
+      <span class="ctl num" id="recmsg" role="status" aria-live="polite"></span>
     </div>
   </div>
 
@@ -221,6 +230,7 @@ footer { margin-top: 14px; color: var(--muted); font-size: 12px; max-width: 900p
 <script type="application/json" id="simdata">/*__DATA__*/</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.js"></script>
 <script>
 (async function () {
 "use strict";
@@ -361,6 +371,7 @@ let showFlex = true;
   }
   groundM.instanceMatrix.needsUpdate = groundM.instanceColor.needsUpdate = true;
 })();
+const groundRef = groundM.instanceMatrix.array.slice();   // 4 blocks per module, module-major
 
 // small rotation helpers on plain arrays (sim coordinates)
 function rotMat(px, py, pz) {
@@ -480,6 +491,9 @@ function update() {
     }
   }
   jawsM.instanceMatrix.needsUpdate = jawsM.instanceColor.needsUpdate = true;
+  { const g = groundM.instanceMatrix.array;
+    for (let k = 0; k < nJ; k++) for (let i = 64 * k; i < 64 * (k + 1); i++) g[i] = visible[k] ? groundRef[i] : 0;
+    groundM.instanceMatrix.needsUpdate = true; }
   adapterM.instanceMatrix.needsUpdate = adapterM.instanceColor.needsUpdate = true;
   inputsM.instanceMatrix.needsUpdate = inputsM.instanceColor.needsUpdate = true;
   // wire (coloured by wall contact inside the tube, striped elsewhere)
@@ -717,13 +731,24 @@ canvas.addEventListener("pointerup", (e) => {
   const hit = ray.intersectObject(leaves)[0];
   if (hit && hit.instanceId !== undefined) selectLeaf(Math.floor(hit.instanceId / (nE * SUB)));
 });
+const ISO = { r: -0.55, t: 1.0, z: 0.8, d: 175 };   // M1 iso camera: direction (radial, tangential, up) and distance [mm]
 function setView(v) {
   document.querySelectorAll(".vbtn[data-view]").forEach(b => b.classList.toggle("on", b.dataset.view === v));
   showFlex = v === "cut" || v === "all"; groundM.visible = showFlex;
-  const hide = v === "all" || v === "tube" ? [] : [0, 5];
+  const hide = v === "all" || v === "tube" ? [] : v === "iso" ? alphas.map((_, k) => k).filter(k => k !== 0) : [0, 5];
+  if (v === "iso") { showFlex = true; groundM.visible = true; }
   alphas.forEach((_, k) => { visible[k] = !hide.includes(k); $("mod" + k).checked = visible[k]; });
   if (v === "wire") { camera.position.set(50, 12, 70); controls.target.set(0, 0, 0); }
   else if (v === "tube") { camera.position.set(260, -60, 330); controls.target.copy(V(0, 0, D.z_entry - P.tube_length / 2)); showFlex = true; groundM.visible = true; }
+  else if (v === "iso") {
+    // isometric-style view of module 1 from outside its +t side, above the jaw midplane
+    const al = alphas[0], er = [Math.cos(al), Math.sin(al)], et = [-Math.sin(al), Math.cos(al)];
+    const rc = 0.5 * (P.r_apex + sG1 * Math.cos(phh));
+    const tgt = V(rc * er[0], rc * er[1], 0);
+    const dir = [ISO.r * er[0] + ISO.t * et[0], ISO.r * er[1] + ISO.t * et[1], ISO.z], n = Math.hypot(...dir);
+    controls.target.copy(tgt);
+    camera.position.copy(tgt).add(V(ISO.d * dir[0] / n, ISO.d * dir[1] / n, ISO.d * dir[2] / n));
+  }
   else { camera.position.set(110, 95, 150); controls.target.set(0, 0, 0); }
   update();
 }
@@ -734,13 +759,150 @@ $("crange").addEventListener("change", (e) => { const v = +e.target.value; if (v
 $("cauto").addEventListener("click", () => setField(CS.field));
 $("showload").addEventListener("change", (e) => { showLoad = e.target.checked; $("lg-load").hidden = !showLoad; update(); });
 $("crange").value = CS.scale;
+// ---------- legend: drag anywhere inside the scene (position kept per browser)
+const legend = $("legend"), wrap = $("scene-wrap");
+function placeLegend(x, y) {
+  const W = wrap.clientWidth, H = wrap.clientHeight, w = legend.offsetWidth, h = legend.offsetHeight;
+  x = Math.max(0, Math.min(W - w, x)); y = Math.max(0, Math.min(H - h, y));
+  Object.assign(legend.style, { left: x + "px", top: y + "px", right: "auto", bottom: "auto" });
+  return [x / Math.max(1, W - w), y / Math.max(1, H - h)];
+}
+let legFrac = null;
+try { legFrac = JSON.parse(localStorage.getItem("feeder-legend") || "null"); } catch (e) { legFrac = null; }
+function applyLegend() {
+  if (!legFrac) { legend.removeAttribute("style"); return; }
+  placeLegend(legFrac[0] * (wrap.clientWidth - legend.offsetWidth), legFrac[1] * (wrap.clientHeight - legend.offsetHeight));
+}
+let drag = null;
+legend.addEventListener("pointerdown", (e) => {
+  const r = legend.getBoundingClientRect();
+  drag = [e.clientX - r.left, e.clientY - r.top]; legend.setPointerCapture(e.pointerId); legend.classList.add("dragging"); e.preventDefault();
+});
+legend.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  const w = wrap.getBoundingClientRect();
+  legFrac = placeLegend(e.clientX - w.left - drag[0], e.clientY - w.top - drag[1]);
+});
+const endDrag = () => { if (!drag) return; drag = null; legend.classList.remove("dragging"); try { localStorage.setItem("feeder-legend", JSON.stringify(legFrac)); } catch (e) {} };
+legend.addEventListener("pointerup", endDrag); legend.addEventListener("pointercancel", endDrag);
+legend.addEventListener("dblclick", () => { legFrac = null; legend.removeAttribute("style"); try { localStorage.removeItem("feeder-legend"); } catch (e) {} });
+
+// ---------- video export: last 180 deg of cam rotation, current camera / colours / legend
+// Each frame = the WebGL image plus the cam-angle readout and the legend, drawn
+// from their on-screen layout. Encoded with WebCodecs (H.264 -> .mp4, exact
+// frame timing); falls back to MediaRecorder (.webm) where WebCodecs is missing.
+function drawDom(ctx, el, w0, s) {
+  if (!el || el.hidden || el.offsetParent === null) return;
+  const cs = getComputedStyle(el), r = el.getBoundingClientRect();
+  const x = (r.left - w0.left) * s, y = (r.top - w0.top) * s, w = r.width * s, h = r.height * s;
+  if (el === legend) {
+    const rad = 5 * s;
+    ctx.save(); ctx.globalAlpha = 0.9; ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--panel").trim();
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, rad) : ctx.rect(x, y, w, h); ctx.fill(); ctx.restore();
+    ctx.strokeStyle = cs.borderTopColor; ctx.lineWidth = s; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, rad) : ctx.rect(x, y, w, h); ctx.stroke();
+  }
+  if (el.classList.contains("ramp")) {
+    const stops = el.id === "ramp-util" ? [$("cmin").value, $("cmax").value] : seq, g = ctx.createLinearGradient(x, 0, x + w, 0);
+    stops.forEach((c, i) => g.addColorStop(i / (stops.length - 1), c));
+    ctx.fillStyle = g; ctx.fillRect(x, y, w, h);
+  }
+  for (const n of el.childNodes) {
+    if (n.nodeType === 3 && n.textContent.trim()) {
+      const rg = document.createRange(); rg.selectNodeContents(n); const tr = rg.getBoundingClientRect();
+      ctx.font = `${cs.fontWeight} ${parseFloat(cs.fontSize) * s}px ${cs.fontFamily}`;
+      ctx.fillStyle = cs.color; ctx.textBaseline = "middle";
+      const txt = cs.textTransform === "uppercase" ? n.textContent.toUpperCase() : n.textContent;
+      ctx.fillText(txt.trim(), (tr.left - w0.left) * s, (tr.top + tr.height / 2 - w0.top) * s);
+    } else if (n.nodeType === 1) drawDom(ctx, n, w0, s);
+  }
+}
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+async function saveBlob(blob, name) {
+  if (window.claude && window.claude.use) {
+    const dl = await window.claude.use("downloads");
+    if (dl) { await dl.save({ filename: name, data: blob }); return "Saved " + name; }
+  }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  return "Saved " + name;
+}
+let recording = false;
+async function recordVideo() {
+  if (recording) return;
+  recording = true; const btn = $("rec"), msg = $("recmsg"); btn.disabled = true;
+  const wasPlaying = playing; playing = false; $("play").textContent = "Play"; controls.enabled = false;
+  const keep = frame;
+  try {
+    const f1 = nF - 1; let f0 = f1; while (f0 > 0 && D.psi[f1] - D.psi[f0 - 1] <= 180 + 1e-6) f0--;
+    const fps = +$("recfps").value, s = canvas.width / canvas.clientWidth;
+    const W = canvas.width & ~1, H = canvas.height & ~1;
+    const comp = document.createElement("canvas"); comp.width = W; comp.height = H;
+    const ctx = comp.getContext("2d"), w0 = wrap.getBoundingClientRect();
+    const paint = (f) => {
+      frame = f; slider.value = f; update(); controls.update(); renderer.render(scene, camera);
+      ctx.drawImage(canvas, 0, 0);
+      drawDom(ctx, document.querySelector(".overlay"), w0, s); drawDom(ctx, legend, w0, s);
+    };
+    const tag = `gap${P.clearance ?? 0}`.replace(".", "p");
+    let cfg = null;
+    if (window.VideoEncoder && window.Mp4Muxer) {
+      // H.264 first (plays everywhere, incl. PowerPoint); VP9 in MP4 if the browser has no H.264 encoder
+      for (const [codec, mc] of [["avc1.640033", "avc"], ["avc1.4d0033", "avc"], ["avc1.42003e", "avc"], ["vp09.00.40.08", "vp9"]]) {
+        const c = { codec, width: W, height: H, bitrate: Math.round(W * H * fps * 0.25), framerate: fps };
+        if (mc === "avc") c.avc = { format: "avc" };
+        try { if ((await VideoEncoder.isConfigSupported(c)).supported) { cfg = c; cfg.mc = mc; break; } } catch (e) {}
+      }
+    }
+    let blob, name;
+    if (cfg) {
+      const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: cfg.mc, width: W, height: H, frameRate: fps }, fastStart: "in-memory" });
+      let err = null;
+      const enc = new VideoEncoder({ output: (ch, meta) => muxer.addVideoChunk(ch, meta), error: (e) => { err = e; } });
+      const { mc, ...ecfg } = cfg; enc.configure(ecfg);
+      for (let f = f0, i = 0; f <= f1; f++, i++) {
+        paint(f);
+        const vf = new VideoFrame(comp, { timestamp: Math.round(i * 1e6 / fps), duration: Math.round(1e6 / fps) });
+        enc.encode(vf, { keyFrame: i % (2 * fps) === 0 }); vf.close();
+        msg.textContent = `Encoding ${i + 1} / ${f1 - f0 + 1}`;
+        if (enc.encodeQueueSize > 4) await sleep(10); else await sleep(0);
+        if (err) throw err;
+      }
+      await enc.flush(); muxer.finalize();
+      blob = new Blob([muxer.target.buffer], { type: "video/mp4" }); name = `feeder_${tag}_last180${mc === "vp9" ? "_vp9" : ""}.mp4`;
+    } else {
+      const mime = ["video/webm;codecs=vp9", "video/webm"].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
+      if (!mime) throw new Error("this browser cannot encode video");
+      const stream = comp.captureStream(0), track = stream.getVideoTracks()[0], chunks = [];
+      const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12e6 });
+      rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+      const done = new Promise(r => { rec.onstop = r; });
+      rec.start();
+      for (let f = f0, i = 0; f <= f1; f++, i++) {
+        const t = performance.now(); paint(f); track.requestFrame();
+        msg.textContent = `Recording ${i + 1} / ${f1 - f0 + 1}`;
+        await sleep(Math.max(0, 1000 / fps - (performance.now() - t)));
+      }
+      rec.stop(); await done;
+      blob = new Blob(chunks, { type: "video/webm" }); name = `feeder_${tag}_last180.webm`;
+    }
+    msg.textContent = await saveBlob(blob, name);
+  } catch (e) {
+    msg.textContent = e && e.code === "declined" ? "Save cancelled" : "Could not save the video: " + (e && (e.message || e.code) || e);
+  } finally {
+    setFrame(keep); controls.enabled = true; btn.disabled = false; recording = false;
+    if (wasPlaying) { playing = true; $("play").textContent = "Pause"; }
+  }
+}
+$("rec").addEventListener("click", recordVideo);
+
 function resize() { const w = canvas.clientWidth, h = canvas.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
 const retheme = () => { readTokens(); paintRamps(); scene.background = new THREE.Color(T.bg); if (tubeMesh) tubeMesh.material.color.set(T.tube); update(); };
-window.addEventListener("resize", () => { resize(); updatePanel(); });
+window.addEventListener("resize", () => { resize(); applyLegend(); updatePanel(); });
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => setTimeout(retheme, 30));
 new MutationObserver(retheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 scene.background = new THREE.Color(T.bg);
 resize();
+applyLegend();
 frame = Math.floor(nF * 0.75); slider.value = frame;
 selLeaf = worstLeaf();
 setView("cut");

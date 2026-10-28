@@ -61,6 +61,15 @@ for Newton; it has no physical duration.
   to the largest value in the run). The legend follows.
 - **Contact load** checkbox: shows or hides the line-load markers on the wire,
   the tube-contact colouring and their legend.
+- **M1 iso**: an isometric-style view of module 1 on its own (other modules off).
+- **Legend**: drag it anywhere in the 3D view; double-click puts it back. The
+  position is remembered per browser.
+- **Save video**: renders the last 180° of the run with the current camera,
+  colours, visible modules, deformation scale and legend position, at the chosen
+  frame rate. Output is H.264 .mp4 (Chrome / Edge / Safari). If the browser has no
+  H.264 encoder it writes VP9 in .mp4, and as a last resort .webm (recorded in
+  real time, so a slow machine stretches it). The frame spacing is that of the
+  stored frames (about 3° of cam per frame).
 - Click a leaf for the **leaf inspector** (axial force, both bending moments
   and torsion along the leaf, through the run).
 
