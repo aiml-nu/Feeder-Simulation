@@ -160,9 +160,13 @@ footer { margin-top: 14px; color: var(--muted); font-size: 12px; max-width: 900p
       <label class="ctl" for="showload"><input type="checkbox" id="showload" checked> Contact load</label>
     </div>
     <div class="transport" id="exportbar">
-      <span class="ctl">Video of the last 180° with the current view, colours and legend</span>
+      <span class="ctl">Save the last 180° (current view, colours, legend)</span>
+      <label class="ctl" for="recfmt">as <select id="recfmt"><option value="mp4" selected>MP4 (loops in PowerPoint)</option><option value="gif">GIF</option></select></label>
+      <label class="ctl" for="recw">width <select id="recw"><option value="screen">as on screen</option><option value="960">960 px</option><option value="1280">1280 px</option><option value="1920" selected>1920 px</option><option value="2560">2560 px</option><option value="3840">3840 px</option></select></label>
+      <label class="ctl" for="recshape">shape <select id="recshape"><option value="shown" selected>as on screen</option><option value="1.7778">16:9</option><option value="1.3333">4:3</option><option value="1">1:1</option></select></label>
       <label class="ctl" for="recfps">at <select id="recfps"><option value="10">10</option><option value="15" selected>15</option><option value="20">20</option><option value="30">30</option></select> frames/s</label>
-      <button type="button" class="vbtn" id="rec">Save video</button>
+      <label class="ctl" for="recsel"><input type="checkbox" id="recsel"> highlight selected leaf</label>
+      <button type="button" class="vbtn" id="rec">Save</button>
       <span class="ctl num" id="recmsg" role="status" aria-live="polite"></span>
     </div>
   </div>
@@ -426,7 +430,7 @@ function fieldRunMax(fd) {
 }
 function niceUp(v) { const p = Math.pow(10, Math.floor(Math.log10(v))); for (const m of [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10]) if (m * p >= v - 1e-9) return m * p; return 10 * p; }
 function setField(fd) { CS.field = fd; CS.scale = fd === "util" ? 1.0 : niceUp(fieldRunMax(fd)); $("crange").value = CS.scale; paintRamps(); update(); }
-let showLoad = true;
+let showLoad = true, hideSel = false;   // hideSel: export without the selected-leaf highlight
 
 function update() {
   const f = frame;
@@ -434,7 +438,7 @@ function update() {
   const pA = [0, 0, 0], pB = [0, 0, 0];
   for (let l = 0; l < nL; l++) {
     const show = visible[leafModule[l]] && showFlex;
-    const isSel = l === selLeaf;
+    const isSel = l === selLeaf && !hideSel;
     for (let j = 0; j < nP; j++) {
       const r = (l * nP + j) * 3, o = ((f * nL + l) * nP + j) * 3;
       pts[j * 3] = leafRef[r] + mag * leafDisp[o]; pts[j * 3 + 1] = leafRef[r + 1] + mag * leafDisp[o + 1]; pts[j * 3 + 2] = leafRef[r + 2] + mag * leafDisp[o + 2];
@@ -787,19 +791,21 @@ const endDrag = () => { if (!drag) return; drag = null; legend.classList.remove(
 legend.addEventListener("pointerup", endDrag); legend.addEventListener("pointercancel", endDrag);
 legend.addEventListener("dblclick", () => { legFrac = null; legend.removeAttribute("style"); try { localStorage.removeItem("feeder-legend"); } catch (e) {} });
 
-// ---------- video export: last 180 deg of cam rotation, current camera / colours / legend
-// Each frame = the WebGL image plus the cam-angle readout and the legend, drawn
-// from their on-screen layout. Encoded with WebCodecs (H.264 -> .mp4, exact
-// frame timing); falls back to MediaRecorder (.webm) where WebCodecs is missing.
-function drawDom(ctx, el, w0, s) {
+// ---------- video / GIF export: last 180 deg of cam rotation, current camera / colours / legend
+// Each frame is rendered off-screen at the requested size, then the cam-angle
+// readout and the legend are drawn on top from their on-screen layout (scaled
+// with the frame height, legend kept at the same relative position).
+// MP4: WebCodecs (H.264, VP9 if no H.264 encoder) + mp4-muxer, exact frame timing;
+// MediaRecorder .webm as a last resort. GIF: gifenc, 256 colours per frame.
+function drawDom(ctx, el, ref, s, ox, oy) {
   if (!el || el.hidden || el.offsetParent === null) return;
   const cs = getComputedStyle(el), r = el.getBoundingClientRect();
-  const x = (r.left - w0.left) * s, y = (r.top - w0.top) * s, w = r.width * s, h = r.height * s;
+  const X = (v) => ox + (v - ref.left) * s, Y = (v) => oy + (v - ref.top) * s;
+  const x = X(r.left), y = Y(r.top), w = r.width * s, h = r.height * s;
   if (el === legend) {
-    const rad = 5 * s;
-    ctx.save(); ctx.globalAlpha = 0.9; ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--panel").trim();
-    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, rad) : ctx.rect(x, y, w, h); ctx.fill(); ctx.restore();
-    ctx.strokeStyle = cs.borderTopColor; ctx.lineWidth = s; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, rad) : ctx.rect(x, y, w, h); ctx.stroke();
+    const rad = 5 * s, box = () => { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, rad) : ctx.rect(x, y, w, h); };
+    ctx.save(); ctx.globalAlpha = 0.92; ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--panel").trim(); box(); ctx.fill(); ctx.restore();
+    ctx.strokeStyle = cs.borderTopColor; ctx.lineWidth = Math.max(1, s); box(); ctx.stroke();
   }
   if (el.classList.contains("ramp")) {
     const stops = el.id === "ramp-util" ? [$("cmin").value, $("cmax").value] : seq, g = ctx.createLinearGradient(x, 0, x + w, 0);
@@ -812,84 +818,110 @@ function drawDom(ctx, el, w0, s) {
       ctx.font = `${cs.fontWeight} ${parseFloat(cs.fontSize) * s}px ${cs.fontFamily}`;
       ctx.fillStyle = cs.color; ctx.textBaseline = "middle";
       const txt = cs.textTransform === "uppercase" ? n.textContent.toUpperCase() : n.textContent;
-      ctx.fillText(txt.trim(), (tr.left - w0.left) * s, (tr.top + tr.height / 2 - w0.top) * s);
-    } else if (n.nodeType === 1) drawDom(ctx, n, w0, s);
+      ctx.fillText(txt.trim(), X(tr.left), Y(tr.top + tr.height / 2));
+    } else if (n.nodeType === 1) drawDom(ctx, n, ref, s, ox, oy);
   }
 }
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 async function saveBlob(blob, name) {
   if (window.claude && window.claude.use) {
     const dl = await window.claude.use("downloads");
-    if (dl) { await dl.save({ filename: name, data: blob }); return "Saved " + name; }
+    if (dl) { await dl.save({ filename: name, data: blob }); return `Saved ${name} (${(blob.size / 1e6).toFixed(1)} MB)`; }
   }
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
-  return "Saved " + name;
+  return `Saved ${name} (${(blob.size / 1e6).toFixed(1)} MB)`;
 }
+let gifLib = null;
+const loadGif = async () => gifLib || (gifLib = await import("https://cdn.jsdelivr.net/npm/gifenc@1.0.3/dist/gifenc.esm.js"));
 let recording = false;
 async function recordVideo() {
   if (recording) return;
   recording = true; const btn = $("rec"), msg = $("recmsg"); btn.disabled = true;
   const wasPlaying = playing; playing = false; $("play").textContent = "Play"; controls.enabled = false;
-  const keep = frame;
+  const keep = frame, fmt = $("recfmt").value;
+  hideSel = !$("recsel").checked;
   try {
     const f1 = nF - 1; let f0 = f1; while (f0 > 0 && D.psi[f1] - D.psi[f0 - 1] <= 180 + 1e-6) f0--;
-    const fps = +$("recfps").value, s = canvas.width / canvas.clientWidth;
-    const W = canvas.width & ~1, H = canvas.height & ~1;
+    const nOut = f1 - f0 + 1, fps = +$("recfps").value;
+    // output size: width from the menu, shape as on screen or fixed
+    const cw = canvas.clientWidth, ch = canvas.clientHeight, aspect = $("recshape").value === "shown" ? cw / ch : +$("recshape").value;
+    const gl = renderer.getContext(), maxDim = Math.min(gl.getParameter(gl.MAX_RENDERBUFFER_SIZE), gl.getParameter(gl.MAX_VIEWPORT_DIMS)[0], 4096);
+    let W = $("recw").value === "screen" ? canvas.width : +$("recw").value, H = W / aspect;
+    const k = Math.min(1, maxDim / W, maxDim / H); W = Math.round(W * k) & ~1; H = Math.round(H * k) & ~1;
+    renderer.setPixelRatio(1); renderer.setSize(W, H, false); camera.aspect = W / H; camera.updateProjectionMatrix();
     const comp = document.createElement("canvas"); comp.width = W; comp.height = H;
-    const ctx = comp.getContext("2d"), w0 = wrap.getBoundingClientRect();
+    const ctx = comp.getContext("2d", { willReadFrequently: fmt === "gif" });
+    const s = H / ch, wr = wrap.getBoundingClientRect(), ov = document.querySelector(".overlay"), orr = ov.getBoundingClientRect(), lr = legend.getBoundingClientRect();
+    const fx = (lr.left - wr.left) / Math.max(1, wr.width - lr.width), fy = (lr.top - wr.top) / Math.max(1, wr.height - lr.height);
     const paint = (f) => {
       frame = f; slider.value = f; update(); controls.update(); renderer.render(scene, camera);
-      ctx.drawImage(canvas, 0, 0);
-      drawDom(ctx, document.querySelector(".overlay"), w0, s); drawDom(ctx, legend, w0, s);
+      ctx.drawImage(canvas, 0, 0, W, H);
+      drawDom(ctx, ov, orr, s, (orr.left - wr.left) * s, (orr.top - wr.top) * s);
+      drawDom(ctx, legend, lr, s, fx * (W - lr.width * s), fy * (H - lr.height * s));
     };
-    const tag = `gap${P.clearance ?? 0}`.replace(".", "p");
-    let cfg = null;
-    if (window.VideoEncoder && window.Mp4Muxer) {
-      // H.264 first (plays everywhere, incl. PowerPoint); VP9 in MP4 if the browser has no H.264 encoder
-      for (const [codec, mc] of [["avc1.640033", "avc"], ["avc1.4d0033", "avc"], ["avc1.42003e", "avc"], ["vp09.00.40.08", "vp9"]]) {
-        const c = { codec, width: W, height: H, bitrate: Math.round(W * H * fps * 0.25), framerate: fps };
-        if (mc === "avc") c.avc = { format: "avc" };
-        try { if ((await VideoEncoder.isConfigSupported(c)).supported) { cfg = c; cfg.mc = mc; break; } } catch (e) {}
-      }
-    }
+    const tag = `gap${P.clearance ?? 0}`.replace(".", "p") + `_${W}x${H}`;
     let blob, name;
-    if (cfg) {
-      const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: cfg.mc, width: W, height: H, frameRate: fps }, fastStart: "in-memory" });
-      let err = null;
-      const enc = new VideoEncoder({ output: (ch, meta) => muxer.addVideoChunk(ch, meta), error: (e) => { err = e; } });
-      const { mc, ...ecfg } = cfg; enc.configure(ecfg);
+    if (fmt === "gif") {
+      msg.textContent = "Loading GIF encoder…";
+      const { GIFEncoder, quantize, applyPalette } = await loadGif();
+      const gif = GIFEncoder(), delay = Math.round(100 / fps) * 10;
       for (let f = f0, i = 0; f <= f1; f++, i++) {
         paint(f);
-        const vf = new VideoFrame(comp, { timestamp: Math.round(i * 1e6 / fps), duration: Math.round(1e6 / fps) });
-        enc.encode(vf, { keyFrame: i % (2 * fps) === 0 }); vf.close();
-        msg.textContent = `Encoding ${i + 1} / ${f1 - f0 + 1}`;
-        if (enc.encodeQueueSize > 4) await sleep(10); else await sleep(0);
-        if (err) throw err;
+        const px = ctx.getImageData(0, 0, W, H).data, pal = quantize(px, 256);
+        gif.writeFrame(applyPalette(px, pal), W, H, { palette: pal, delay, repeat: 0 });
+        msg.textContent = `GIF frame ${i + 1} / ${nOut}`; await sleep(0);
       }
-      await enc.flush(); muxer.finalize();
-      blob = new Blob([muxer.target.buffer], { type: "video/mp4" }); name = `feeder_${tag}_last180${mc === "vp9" ? "_vp9" : ""}.mp4`;
+      gif.finish(); blob = new Blob([gif.bytes()], { type: "image/gif" }); name = `feeder_${tag}_last180.gif`;
     } else {
-      const mime = ["video/webm;codecs=vp9", "video/webm"].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
-      if (!mime) throw new Error("this browser cannot encode video");
-      const stream = comp.captureStream(0), track = stream.getVideoTracks()[0], chunks = [];
-      const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12e6 });
-      rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-      const done = new Promise(r => { rec.onstop = r; });
-      rec.start();
-      for (let f = f0, i = 0; f <= f1; f++, i++) {
-        const t = performance.now(); paint(f); track.requestFrame();
-        msg.textContent = `Recording ${i + 1} / ${f1 - f0 + 1}`;
-        await sleep(Math.max(0, 1000 / fps - (performance.now() - t)));
+      let cfg = null;
+      if (window.VideoEncoder && window.Mp4Muxer) {
+        // H.264 first (plays everywhere, incl. PowerPoint); VP9 in MP4 if the browser has no H.264 encoder
+        for (const [codec, mc] of [["avc1.640033", "avc"], ["avc1.4d0033", "avc"], ["avc1.42003e", "avc"], ["vp09.00.40.08", "vp9"]]) {
+          const c = { codec, width: W, height: H, bitrate: Math.round(W * H * fps * 0.25), framerate: fps };
+          if (mc === "avc") c.avc = { format: "avc" };
+          try { if ((await VideoEncoder.isConfigSupported(c)).supported) { cfg = c; cfg.mc = mc; break; } } catch (e) {}
+        }
       }
-      rec.stop(); await done;
-      blob = new Blob(chunks, { type: "video/webm" }); name = `feeder_${tag}_last180.webm`;
+      if (cfg) {
+        const { mc, ...ecfg } = cfg;
+        const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: mc, width: W, height: H, frameRate: fps }, fastStart: "in-memory" });
+        let err = null;
+        const enc = new VideoEncoder({ output: (c, meta) => muxer.addVideoChunk(c, meta), error: (e) => { err = e; } });
+        enc.configure(ecfg);
+        for (let f = f0, i = 0; f <= f1; f++, i++) {
+          paint(f);
+          const vf = new VideoFrame(comp, { timestamp: Math.round(i * 1e6 / fps), duration: Math.round(1e6 / fps) });
+          enc.encode(vf, { keyFrame: i % (2 * fps) === 0 }); vf.close();
+          msg.textContent = `Encoding ${i + 1} / ${nOut}`;
+          await sleep(enc.encodeQueueSize > 4 ? 10 : 0);
+          if (err) throw err;
+        }
+        await enc.flush(); muxer.finalize();
+        blob = new Blob([muxer.target.buffer], { type: "video/mp4" }); name = `feeder_${tag}_last180${mc === "vp9" ? "_vp9" : ""}.mp4`;
+      } else {
+        const mime = ["video/webm;codecs=vp9", "video/webm"].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
+        if (!mime) throw new Error("this browser cannot encode video; try GIF");
+        const stream = comp.captureStream(0), track = stream.getVideoTracks()[0], chunks = [];
+        const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: Math.round(W * H * fps * 0.25) });
+        rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+        const done = new Promise(r => { rec.onstop = r; });
+        rec.start();
+        for (let f = f0, i = 0; f <= f1; f++, i++) {
+          const t = performance.now(); paint(f); track.requestFrame();
+          msg.textContent = `Recording ${i + 1} / ${nOut}`;
+          await sleep(Math.max(0, 1000 / fps - (performance.now() - t)));
+        }
+        rec.stop(); await done;
+        blob = new Blob(chunks, { type: "video/webm" }); name = `feeder_${tag}_last180.webm`;
+      }
     }
     msg.textContent = await saveBlob(blob, name);
   } catch (e) {
-    msg.textContent = e && e.code === "declined" ? "Save cancelled" : "Could not save the video: " + (e && (e.message || e.code) || e);
+    msg.textContent = e && e.code === "declined" ? "Save cancelled" : "Could not save: " + (e && (e.message || e.code) || e);
   } finally {
-    setFrame(keep); controls.enabled = true; btn.disabled = false; recording = false;
+    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1)); resize();
+    hideSel = false; setFrame(keep); controls.enabled = true; btn.disabled = false; recording = false;
     if (wasPlaying) { playing = true; $("play").textContent = "Pause"; }
   }
 }

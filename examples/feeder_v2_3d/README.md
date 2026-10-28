@@ -64,12 +64,19 @@ for Newton; it has no physical duration.
 - **M1 iso**: an isometric-style view of module 1 on its own (other modules off).
 - **Legend**: drag it anywhere in the 3D view; double-click puts it back. The
   position is remembered per browser.
-- **Save video**: renders the last 180° of the run with the current camera,
-  colours, visible modules, deformation scale and legend position, at the chosen
-  frame rate. Output is H.264 .mp4 (Chrome / Edge / Safari). If the browser has no
-  H.264 encoder it writes VP9 in .mp4, and as a last resort .webm (recorded in
-  real time, so a slow machine stretches it). The frame spacing is that of the
-  stored frames (about 3° of cam per frame).
+- **Save** (export row): renders the last 180° of the run with the current camera,
+  colours, visible modules, deformation scale and legend, and saves it.
+  - Format: **MP4** (H.264; set "Loop until stopped" in PowerPoint for a GIF-like
+    loop; VP9 in .mp4 if the browser has no H.264 encoder, .webm as a last
+    resort) or **GIF** (256 colours per frame; files are several times larger, and
+    frame delays round to 10 ms, so 15 frames/s plays at about 14).
+  - Width: as on screen, or 960–3840 px (capped at the GPU's limit, at most 4096).
+    Shape: as on screen, 16:9, 4:3 or 1:1. A different shape widens or narrows the
+    view sideways; the vertical framing stays as on screen. Text and legend scale
+    with the frame height, and the legend keeps its relative position.
+  - The selected-leaf highlight is left out unless "highlight selected leaf" is ticked.
+  - Frame spacing is that of the stored frames (about 3° of cam per frame);
+    `make_figures.py --viewer-revs 0.5` puts all stored frames into the last 180°.
 - Click a leaf for the **leaf inspector** (axial force, both bending moments
   and torsion along the leaf, through the run).
 
