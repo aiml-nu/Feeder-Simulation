@@ -834,6 +834,85 @@ async function saveBlob(blob, name) {
 }
 let gifLib = null;
 const loadGif = async () => gifLib || (gifLib = await import("https://cdn.jsdelivr.net/npm/gifenc@1.0.3/dist/gifenc.esm.js"));
+// ---- MP4 via WebCodecs + mp4-muxer, robust to encoders that omit the decoder config
+// (Firefox returns chunks without metadata.decoderConfig, and H.264 in Annex-B form):
+// the avcC record is then rebuilt from the in-band SPS/PPS, and Annex-B start codes are
+// turned into the 4-byte length prefixes MP4 requires. VP9 gets a synthesized config.
+const COLOR709 = { primaries: "bt709", transfer: "bt709", matrix: "bt709", fullRange: false };
+const isAnnexB = (b) => b.length > 3 && b[0] === 0 && b[1] === 0 && (b[2] === 1 || (b[2] === 0 && b[3] === 1));
+function nalUnits(b) {
+  const out = [];
+  if (isAnnexB(b)) {
+    let i = 0, start = -1;
+    const push = (end) => { while (end > start && b[end - 1] === 0) end--; if (end > start) out.push(b.subarray(start, end)); };
+    while (i + 2 < b.length) {
+      if (b[i] === 0 && b[i + 1] === 0 && b[i + 2] === 1) { if (start >= 0) push(i); i += 3; start = i; } else i++;
+    }
+    if (start >= 0) push(b.length);
+  } else {
+    let i = 0;
+    while (i + 4 <= b.length) { const n = ((b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]) >>> 0; out.push(b.subarray(i + 4, i + 4 + n)); i += 4 + n; }
+  }
+  return out;
+}
+function lengthPrefixed(nals) {
+  const out = new Uint8Array(nals.reduce((a, n) => a + 4 + n.length, 0)); let o = 0;
+  for (const n of nals) { out[o] = n.length >>> 24; out[o + 1] = (n.length >>> 16) & 255; out[o + 2] = (n.length >>> 8) & 255; out[o + 3] = n.length & 255; out.set(n, o + 4); o += 4 + n.length; }
+  return out;
+}
+function avcCRecord(sps, pps) {   // AVCDecoderConfigurationRecord (ISO/IEC 14496-15)
+  const out = new Uint8Array(11 + sps.length + pps.length);
+  out.set([1, sps[1], sps[2], sps[3], 0xff, 0xe1, sps.length >> 8, sps.length & 255]); out.set(sps, 8);
+  out.set([1, pps.length >> 8, pps.length & 255], 8 + sps.length); out.set(pps, 11 + sps.length);
+  return out;
+}
+const goodColor = (cs) => cs && cs.primaries && cs.transfer && cs.matrix ? cs : COLOR709;
+async function encodeMp4(ecfg, mc, W, H, fps, f0, f1, paint, comp, msg) {
+  const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: mc, width: W, height: H, frameRate: fps }, fastStart: "in-memory" });
+  let err = null, dc = null;
+  const enc = new VideoEncoder({
+    error: (e) => { err = e; },
+    output: (chunk, meta) => {
+      try {
+        let data = new Uint8Array(chunk.byteLength); chunk.copyTo(data);
+        let m;
+        const given = meta && meta.decoderConfig ? Object.assign({}, meta.decoderConfig) : null;
+        if (mc === "avc") {
+          const nals = nalUnits(data);
+          if (isAnnexB(data)) data = lengthPrefixed(nals);
+          if (!dc) {
+            let d = given;
+            if (!d || !d.description) {
+              const sps = nals.find(n => (n[0] & 31) === 7), pps = nals.find(n => (n[0] & 31) === 8);
+              if (!sps || !pps) throw new Error("H.264 stream has no decoder config and no in-band SPS/PPS");
+              d = Object.assign({ codec: ecfg.codec, codedWidth: W, codedHeight: H }, d || {}, { description: avcCRecord(sps, pps) });
+            }
+            d.colorSpace = goodColor(d.colorSpace); dc = d; m = { decoderConfig: d };
+          }
+        } else if (!dc) {
+          dc = Object.assign({ codec: ecfg.codec, codedWidth: W, codedHeight: H }, given || {});
+          dc.colorSpace = goodColor(dc.colorSpace); m = { decoderConfig: dc };
+        }
+        muxer.addVideoChunkRaw(data, chunk.type, chunk.timestamp, chunk.duration ?? Math.round(1e6 / fps), m);
+      } catch (e) { err = err || e; }
+    },
+  });
+  enc.configure(ecfg);
+  const n = f1 - f0 + 1;
+  for (let f = f0, i = 0; f <= f1; f++, i++) {
+    paint(f);
+    const vf = new VideoFrame(comp, { timestamp: Math.round(i * 1e6 / fps), duration: Math.round(1e6 / fps) });
+    enc.encode(vf, { keyFrame: i % (2 * fps) === 0 }); vf.close();
+    msg.textContent = `Encoding ${i + 1} / ${n} (${ecfg.codec.startsWith("avc") ? "H.264" : "VP9"})`;
+    await sleep(enc.encodeQueueSize > 4 ? 10 : 0);
+    if (err) { try { enc.close(); } catch (e) {} throw err; }
+  }
+  await enc.flush(); enc.close();
+  if (err) throw err;
+  if (!dc) throw new Error("encoder produced no decoder config");
+  muxer.finalize();
+  return new Blob([muxer.target.buffer], { type: "video/mp4" });
+}
 let recording = false;
 async function recordVideo() {
   if (recording) return;
@@ -874,32 +953,23 @@ async function recordVideo() {
       }
       gif.finish(); blob = new Blob([gif.bytes()], { type: "image/gif" }); name = `feeder_${tag}_last180.gif`;
     } else {
-      let cfg = null;
+      // every supported codec, H.264 first (plays everywhere, incl. PowerPoint), then VP9 in MP4
+      const cands = [];
       if (window.VideoEncoder && window.Mp4Muxer) {
-        // H.264 first (plays everywhere, incl. PowerPoint); VP9 in MP4 if the browser has no H.264 encoder
+        let haveAvc = false;
         for (const [codec, mc] of [["avc1.640033", "avc"], ["avc1.4d0033", "avc"], ["avc1.42003e", "avc"], ["vp09.00.40.08", "vp9"]]) {
+          if (mc === "avc" && haveAvc) continue;
           const c = { codec, width: W, height: H, bitrate: Math.round(W * H * fps * 0.25), framerate: fps };
           if (mc === "avc") c.avc = { format: "avc" };
-          try { if ((await VideoEncoder.isConfigSupported(c)).supported) { cfg = c; cfg.mc = mc; break; } } catch (e) {}
+          try { if ((await VideoEncoder.isConfigSupported(c)).supported) { cands.push([c, mc]); haveAvc = haveAvc || mc === "avc"; } } catch (e) {}
         }
       }
-      if (cfg) {
-        const { mc, ...ecfg } = cfg;
-        const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: mc, width: W, height: H, frameRate: fps }, fastStart: "in-memory" });
-        let err = null;
-        const enc = new VideoEncoder({ output: (c, meta) => muxer.addVideoChunk(c, meta), error: (e) => { err = e; } });
-        enc.configure(ecfg);
-        for (let f = f0, i = 0; f <= f1; f++, i++) {
-          paint(f);
-          const vf = new VideoFrame(comp, { timestamp: Math.round(i * 1e6 / fps), duration: Math.round(1e6 / fps) });
-          enc.encode(vf, { keyFrame: i % (2 * fps) === 0 }); vf.close();
-          msg.textContent = `Encoding ${i + 1} / ${nOut}`;
-          await sleep(enc.encodeQueueSize > 4 ? 10 : 0);
-          if (err) throw err;
-        }
-        await enc.flush(); muxer.finalize();
-        blob = new Blob([muxer.target.buffer], { type: "video/mp4" }); name = `feeder_${tag}_last180${mc === "vp9" ? "_vp9" : ""}.mp4`;
-      } else {
+      let why = "";
+      for (const [ecfg, mc] of cands) {
+        try { blob = await encodeMp4(ecfg, mc, W, H, fps, f0, f1, paint, comp, msg); name = `feeder_${tag}_last180${mc === "vp9" ? "_vp9" : ""}.mp4`; break; }
+        catch (e) { why = (e && e.message) || String(e); console.warn("mp4 export with", ecfg.codec, "failed:", why); }
+      }
+      if (!blob) {   // no usable WebCodecs path: real-time MediaRecorder (.webm)
         const mime = ["video/webm;codecs=vp9", "video/webm"].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m));
         if (!mime) throw new Error("this browser cannot encode video; try GIF");
         const stream = comp.captureStream(0), track = stream.getVideoTracks()[0], chunks = [];
